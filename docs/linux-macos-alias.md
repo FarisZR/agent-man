@@ -2,10 +2,10 @@
 
 Launch `agent-man` from your terminal with a single command.
 
-## One-liner setup (run on Linux or macOS)
+## Quick setup (run on Linux or macOS)
 
 ```bash
-curl -sL https://raw.githubusercontent.com/FarisZR/agent-man/main/scripts/setup-linux-alias | bash
+curl -sL https://raw.githubusercontent.com/FarisZR/agent-man/main/scripts/setup-linux-alias -o setup-linux-alias && chmod +x setup-linux-alias && ./setup-linux-alias
 ```
 
 The script will ask for:

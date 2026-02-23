@@ -1,9 +1,22 @@
 #!/usr/bin/env bash
 # setup-linux-alias
 # Run on Linux to create an agent-man alias that SSHs to a server.
-# Usage: curl -sL https://raw.githubusercontent.com/FarisZR/agent-man/main/scripts/setup-linux-alias | bash
+# Usage: curl -sL https://raw.githubusercontent.com/FarisZR/agent-man/main/scripts/setup-linux-alias -o setup-linux-alias && chmod +x setup-linux-alias && ./setup-linux-alias
 
 set -euo pipefail
+
+# ── check interactive terminal ─────────────────────────────────────────────────
+if [[ ! -t 0 ]]; then
+  echo "This script requires interactive input. Pipe to bash won't work."
+  echo ""
+  echo "Download and run directly instead:"
+  echo ""
+  echo "  curl -sL https://raw.githubusercontent.com/FarisZR/agent-man/main/scripts/setup-linux-alias -o setup-linux-alias"
+  echo "  chmod +x setup-linux-alias"
+  echo "  ./setup-linux-alias"
+  echo ""
+  exit 1
+fi
 
 SSH_CONFIG="${HOME}/.ssh/config"
 SSH_DIR="${HOME}/.ssh"

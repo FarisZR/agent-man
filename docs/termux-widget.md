@@ -2,10 +2,10 @@
 
 Launch `agent-man` from your Android home screen with a single tap.
 
-## One-liner setup (run in Termux)
+## Quick setup (run in Termux)
 
 ```bash
-curl -sL https://raw.githubusercontent.com/FarisZR/agent-man/main/scripts/setup-termux-shortcut | bash
+curl -sL https://raw.githubusercontent.com/FarisZR/agent-man/main/scripts/setup-termux-shortcut -o setup-termux-shortcut && chmod +x setup-termux-shortcut && ./setup-termux-shortcut
 ```
 
 The script will ask for:

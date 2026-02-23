@@ -1,9 +1,22 @@
 #!/data/data/com.termux/files/usr/bin/bash
 # setup-termux-shortcut
 # Run on Android Termux to create an agent-man launcher shortcut.
-# Usage: curl -sL https://raw.githubusercontent.com/FarisZR/agent-man/main/scripts/setup-termux-shortcut | bash
+# Usage: curl -sL https://raw.githubusercontent.com/FarisZR/agent-man/main/scripts/setup-termux-shortcut -o setup-termux-shortcut && chmod +x setup-termux-shortcut && ./setup-termux-shortcut
 
 set -euo pipefail
+
+# ── check interactive terminal ─────────────────────────────────────────────────
+if [[ ! -t 0 ]]; then
+  echo "This script requires interactive input. Pipe to bash won't work."
+  echo ""
+  echo "Download and run directly instead:"
+  echo ""
+  echo "  curl -sL https://raw.githubusercontent.com/FarisZR/agent-man/main/scripts/setup-termux-shortcut -o setup-termux-shortcut"
+  echo "  chmod +x setup-termux-shortcut"
+  echo "  ./setup-termux-shortcut"
+  echo ""
+  exit 1
+fi
 
 ICON_URL="https://raw.githubusercontent.com/FarisZR/agent-man/main/assets/agent-man-icon.png"
 SHORTCUT_NAME="agent-man"
