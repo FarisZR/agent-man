@@ -1,39 +1,16 @@
-#!/usr/bin/env bash
-# setup-linux-alias
-# Run on Linux to create an agent-man alias that SSHs to a server.
-# Usage: curl -sL https://raw.githubusercontent.com/FarisZR/agent-man/main/bin/setup-linux-alias | bash
+#!/data/data/com.termux/files/usr/bin/bash
+# setup-termux-shortcut
+# Run on Android Termux to create an agent-man launcher shortcut.
+# Usage: curl -sL https://raw.githubusercontent.com/FarisZR/agent-man/main/scripts/setup-termux-shortcut | bash
 
 set -euo pipefail
 
+ICON_URL="https://raw.githubusercontent.com/FarisZR/agent-man/main/assets/agent-man-icon.png"
+SHORTCUT_NAME="agent-man"
+SHORTCUTS_DIR="${HOME}/.termux/widget/dynamic_shortcuts"
+ICONS_DIR="${HOME}/.shortcuts/icons"
 SSH_CONFIG="${HOME}/.ssh/config"
 SSH_DIR="${HOME}/.ssh"
-ALIAS_NAME="agent-man"
-
-# ── detect shell and config file ───────────────────────────────────────────────
-SHELL_CONFIG=""
-case "${SHELL:-}" in
-  */bash)
-    SHELL_CONFIG="${HOME}/.bashrc"
-    ;;
-  */zsh)
-    SHELL_CONFIG="${HOME}/.zshrc"
-    ;;
-  */fish)
-    SHELL_CONFIG="${HOME}/.config/fish/config.fish"
-    ;;
-  *)
-    # Try common fallbacks
-    if [[ -f "${HOME}/.zshrc" ]]; then
-      SHELL_CONFIG="${HOME}/.zshrc"
-    elif [[ -f "${HOME}/.bashrc" ]]; then
-      SHELL_CONFIG="${HOME}/.bashrc"
-    elif [[ -f "${HOME}/.bash_profile" ]]; then
-      SHELL_CONFIG="${HOME}/.bash_profile"
-    else
-      SHELL_CONFIG="${HOME}/.bashrc"
-    fi
-    ;;
-esac
 
 # ── colours ──────────────────────────────────────────────────────────────────
 bold=$(tput bold 2>/dev/null || true)
@@ -62,7 +39,7 @@ ask() {
 
 # ── banner ────────────────────────────────────────────────────────────────────
 echo ""
-printf "%s agent-man Linux alias setup %s\n" "${bold}${cyan}" "${reset}"
+printf "%s agent-man Termux shortcut setup %s\n" "${bold}${cyan}" "${reset}"
 echo "────────────────────────────────────────"
 echo ""
 
@@ -105,23 +82,44 @@ EOF
   success "SSH config written (Host agentbox → ${SSH_USER}@${SSH_HOST}:${SSH_PORT})"
 fi
 
-# ── add alias to shell config ─────────────────────────────────────────────────
-info "Adding alias to ${SHELL_CONFIG}..."
+# ── create shortcut dirs ──────────────────────────────────────────────────────
+info "Creating shortcut directories..."
+mkdir -p "$SHORTCUTS_DIR"
+chmod 700 "$SHORTCUTS_DIR"
+mkdir -p "$ICONS_DIR"
+chmod -R a-x,u=rwX,go-rwx "$ICONS_DIR"
+success "Directories ready"
 
-ALIAS_MARKER="# agent-man alias (added by setup-linux-alias)"
+# ── write shortcut script ─────────────────────────────────────────────────────
+info "Writing shortcut script..."
+SCRIPT_PATH="${SHORTCUTS_DIR}/${SHORTCUT_NAME}"
 
-if grep -q "$ALIAS_MARKER" "$SHELL_CONFIG" 2>/dev/null; then
-  warn "Alias already exists in ${SHELL_CONFIG} — skipping."
+cat > "$SCRIPT_PATH" <<'SCRIPT'
+#!/data/data/com.termux/files/usr/bin/bash
+set -euo pipefail
+# bash -l loads ~/.profile so tools like bun are on PATH
+ssh -t agentbox 'bash -lc "cd ~/agent-man && ./bin/agent-man-entry"'
+SCRIPT
+
+chmod +x "$SCRIPT_PATH"
+success "Script written: ${SCRIPT_PATH}"
+
+# ── download icon ─────────────────────────────────────────────────────────────
+info "Downloading icon..."
+ICON_PATH="${ICONS_DIR}/${SHORTCUT_NAME}.png"
+
+if command -v curl >/dev/null 2>&1; then
+  curl -fsSL "$ICON_URL" -o "$ICON_PATH"
+elif command -v wget >/dev/null 2>&1; then
+  wget -qO "$ICON_PATH" "$ICON_URL"
 else
-  cat >> "$SHELL_CONFIG" <<EOF
+  warn "Neither curl nor wget found — skipping icon download."
+  warn "Manually place a PNG at: ${ICON_PATH}"
+fi
 
-${ALIAS_MARKER}
-${ALIAS_NAME}() {
-  # bash -l loads the remote login profile so tools like bun are on PATH
-  ssh -t agentbox 'bash -lc "cd ~/agent-man && ./bin/agent-man-entry"'
-}
-EOF
-  success "Alias added to ${SHELL_CONFIG}"
+if [[ -f "$ICON_PATH" ]]; then
+  chmod 600 "$ICON_PATH"
+  success "Icon saved: ${ICON_PATH}"
 fi
 
 # ── done ──────────────────────────────────────────────────────────────────────
@@ -129,13 +127,12 @@ echo ""
 printf "%s Setup complete! %s\n" "${bold}${green}" "${reset}"
 echo "────────────────────────────────────────"
 echo ""
-echo "Reload your shell to start using the alias:"
+echo "To add the launcher shortcut:"
 echo ""
-echo "  source ${SHELL_CONFIG}"
+echo "  1. Open the Termux:Widget app"
+echo "  2. Tap CREATE SHORTCUTS in the Dynamic shortcuts section"
+echo "  3. Long-press the Termux:Widget icon on your launcher"
+echo "  4. Select 'agent-man' and place it on your home screen"
 echo ""
-echo "Then run:"
-echo ""
-echo "  ${bold}${ALIAS_NAME}${reset}"
-echo ""
-echo "This will SSH into ${bold}agentbox${reset} and launch agent-man."
+echo "Tap the shortcut to SSH into ${bold}agentbox${reset} and launch agent-man."
 echo ""

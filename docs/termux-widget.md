@@ -1,41 +1,11 @@
-# Remote Access Setup
-
-Launch `agent-man` from anywhere with SSH.
-
-## Linux / macOS
-
-Run on your local machine to create an `agent-man` alias:
-
-```bash
-curl -sL https://raw.githubusercontent.com/FarisZR/agent-man/main/bin/setup-linux-alias | bash
-```
-
-The script will ask for SSH connection details, then:
-
-1. Writes an SSH host alias `agentbox` to `~/.ssh/config`
-2. Adds an `agent-man` function to your shell config (`~/.bashrc`, `~/.zshrc`, or `~/.config/fish/config.fish`)
-3. Uses `bash -l` so the remote login profile (and bun's PATH) is loaded
-
-Reload your shell:
-```bash
-source ~/.bashrc  # or ~/.zshrc, etc.
-```
-
-Then just run:
-```bash
-agent-man
-```
-
----
-
-## Android (Termux Shortcut)
+# Termux Shortcut Setup
 
 Launch `agent-man` from your Android home screen with a single tap.
 
-### One-liner setup (run in Termux)
+## One-liner setup (run in Termux)
 
 ```bash
-curl -sL https://raw.githubusercontent.com/FarisZR/agent-man/main/bin/setup-termux-shortcut | bash
+curl -sL https://raw.githubusercontent.com/FarisZR/agent-man/main/scripts/setup-termux-shortcut | bash
 ```
 
 The script will ask for:
