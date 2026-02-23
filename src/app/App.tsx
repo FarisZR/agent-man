@@ -367,28 +367,3 @@ export function App({ controller, workspaceRoot, onExit }: AppProps) {
     </box>
   )
 }
-
-export async function demoController(): Promise<AppController> {
-  const now = Date.now()
-
-  return {
-    async loadSessions() {
-      return [
-        {
-          name: "agent-man-demo",
-          attached: false,
-          activityEpoch: now,
-          agent: "opencode",
-          workspace: "~/agent-sessions/demo",
-          createdAt: new Date(now).toISOString(),
-        },
-      ]
-    },
-    async resumeSession(sessionName: string) {
-      return { reason: "attach", code: 0, sessionName }
-    },
-    async createSession() {
-      return { reason: "attach", code: 0, sessionName: "agent-man-demo-created" }
-    },
-  }
-}

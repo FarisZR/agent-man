@@ -1,7 +1,12 @@
 import { createCliRenderer } from "@opentui/core"
 import { createRoot } from "@opentui/react"
-import { App, demoController } from "./app/App"
+import { App } from "./app/App"
+import { AgentManController } from "./app/controller"
 import type { AppExit } from "./app/types"
+import { DependencyService } from "./services/deps"
+import { SystemRunner } from "./services/runner"
+import { TmuxService } from "./services/tmux"
+import { WorkspaceService } from "./services/workspace"
 
 const WORKSPACE_ROOT = "~/agent-sessions"
 
@@ -58,7 +63,12 @@ const exitPromise = new Promise<AppExit>((resolve) => {
   resolveExit = resolve
 })
 
-const controller = await demoController()
+const runner = new SystemRunner()
+const controller = new AgentManController({
+  deps: new DependencyService(runner),
+  tmux: new TmuxService(runner),
+  workspace: new WorkspaceService(runner),
+})
 root.render(<App controller={controller} workspaceRoot={WORKSPACE_ROOT} onExit={resolveExit} />)
 
 const exit = await exitPromise

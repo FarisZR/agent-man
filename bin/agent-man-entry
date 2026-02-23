@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+bun run src/index.tsx "$@"
+status=$?
+
+if [ "$status" -eq 40 ]; then
+  exec "${SHELL:-/bin/bash}" -l
+fi
+
+exit "$status"
