@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SSH_CONFIG="${HOME}/.ssh/config"
+SSH_DIR="${HOME}/.ssh"
+AGENT_MAN_DIR="${HOME}/.local/bin"
+AGENT_MAN_SCRIPT="${AGENT_MAN_DIR}/agent-man"
+PROMPT_COLOR=$(tput setaf 6 2>/dev/null || true)
+BOLD=$(tput bold 2>/dev/null || true)
+RESET=$(tput sgr0 2>/dev/null || true)
+
+info(){ printf "%s%s%s %s\n" "${PROMPT_COLOR}" "${BOLD}" "${1}" "${RESET}"; }
+prompt(){
+  local message="$1"
+  local default="${2:-}"
+  if [[ -n "$default" ]]; then
+    read -rp "${BOLD}${message}${RESET} [${default}]: " input
+  else
+    read -rp "${BOLD}${message}${RESET}: " input
+  fi
+  printf '%s' "${input:-$default}"
+}
+
+info "Configuring linux/macos agent-man command"
+
+SSH_HOST=""
+while [[ -z "$SSH_HOST" ]]; do
+  SSH_HOST=$(prompt "Remote host" "")
+  if [[ -z "$SSH_HOST" ]]; then
+    info "Remote host cannot be empty"
+  fi
+done
+
+SSH_USER=$(prompt "Remote user" "$(whoami 2>/dev/null || echo user)")
+SSH_PORT=$(prompt "SSH port" "22")
+SSH_KEY=$(prompt "Path to SSH identity" "${HOME}/.ssh/id_ed25519")
+
+info "Writing SSH config"
+mkdir -p "$SSH_DIR"
+chmod 700 "$SSH_DIR"
+
+if [[ -f "$SSH_CONFIG" ]] && grep -q "^Host agentbox" "$SSH_CONFIG" 2>/dev/null; then
+  info "Host agentbox already exists in ~/.ssh/config"
+else
+  cat >> "$SSH_CONFIG" <<EOF
+
+Host agentbox
+  HostName ${SSH_HOST}
+  User ${SSH_USER}
+  Port ${SSH_PORT}
+  IdentityFile ${SSH_KEY}
+  ServerAliveInterval 30
+  ServerAliveCountMax 3
+EOF
+  chmod 600 "$SSH_CONFIG"
+  info "SSH alias written"
+fi
+
+info "Creating ${AGENT_MAN_SCRIPT}"
+mkdir -p "$AGENT_MAN_DIR"
+chmod 755 "$AGENT_MAN_DIR"
+cat <<'SCRIPT' > "$AGENT_MAN_SCRIPT"
+#!/usr/bin/env bash
+set -euo pipefail
+ssh -t agentbox 'bash -lc "cd ~/agent-man && ./bin/agent-man-entry"'
+SCRIPT
+chmod +x "$AGENT_MAN_SCRIPT"
+
+info "${AGENT_MAN_SCRIPT} created"
+
+if ! command -v agent-man >/dev/null 2>&1; then
+  echo "${BOLD}Add ${AGENT_MAN_DIR} to your PATH (for example in ~/.bashrc or ~/.zshrc):${RESET}"
+  echo "  export PATH=\"${AGENT_MAN_DIR}:\$PATH\""
+fi
+
+echo "Run 'agent-man' to start the remote agent."
