@@ -56,7 +56,7 @@ describe("App helper functions", () => {
     expect(MAX_HOME_SESSION_OPTIONS).toBe(3)
   })
 
-  it("builds home options with top three sessions first", () => {
+  it("builds home options with fixed actions first and sessions below", () => {
     const options = buildHomeOptions([
       { name: "s1", attached: false, activityEpoch: 3, agent: "codex" },
       { name: "s2", attached: false, activityEpoch: 2, agent: "opencode" },
@@ -64,11 +64,13 @@ describe("App helper functions", () => {
       { name: "s4", attached: false, activityEpoch: 0, agent: "opencode" },
     ])
 
-    expect(options[0]).toEqual({ kind: "resume_session", sessionName: "s1", label: "Resume: s1 (codex)" })
-    expect(options[1]).toEqual({ kind: "resume_session", sessionName: "s2", label: "Resume: s2 (opencode)" })
-    expect(options[2]).toEqual({ kind: "resume_session", sessionName: "s3", label: "Resume: s3 (codex)" })
-    expect(options[3]).toEqual({ kind: "resume_menu", label: "More sessions (1)" })
-    expect(options[4]).toEqual({ kind: "new_session", agent: "opencode", label: "New OpenCode Session" })
+    expect(options[0]).toEqual({ kind: "new_session", agent: "opencode", label: "New OpenCode Session" })
+    expect(options[1]).toEqual({ kind: "new_session", agent: "codex", label: "New Codex Session" })
+    expect(options[2]).toEqual({ kind: "direct_shell", label: "Direct Shell (no tmux)" })
+    expect(options[3]).toEqual({ kind: "resume_session", sessionName: "s1", label: "Resume: s1 (codex)" })
+    expect(options[4]).toEqual({ kind: "resume_session", sessionName: "s2", label: "Resume: s2 (opencode)" })
+    expect(options[5]).toEqual({ kind: "resume_session", sessionName: "s3", label: "Resume: s3 (codex)" })
+    expect(options[6]).toEqual({ kind: "resume_menu", label: "More sessions (1)" })
   })
 
   it("builds create-session payloads", () => {

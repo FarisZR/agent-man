@@ -148,11 +148,14 @@ afterEach(() => {
 })
 
 describe("App e2e flows", () => {
-  it("resumes first existing session from home menu", async () => {
+  it("resumes first existing session from home menu below fixed options", async () => {
     const app = await renderApp({
       sessions: [{ name: "agent-man-a", attached: false, activityEpoch: 100, agent: "opencode" }],
     })
 
+    await app.pressDown()
+    await app.pressDown()
+    await app.pressDown()
     await app.pressEnter()
     expect(app.exits[0]).toEqual({ reason: "attach", code: 0, sessionName: "agent-man-a" })
   })
@@ -172,7 +175,7 @@ describe("App e2e flows", () => {
     expect(appCtrlC.exits[0]).toEqual({ reason: "quit", code: 130 })
   })
 
-  it("shows top three sessions first and a more-sessions option", async () => {
+  it("shows fixed options first and recent sessions below", async () => {
     const app = await renderApp({
       sessions: [
         { name: "s1", attached: false, activityEpoch: 4, agent: "opencode" },
@@ -183,6 +186,9 @@ describe("App e2e flows", () => {
     })
 
     const frame = app.captureCharFrame()
+    expect(frame).toContain("New OpenCode Session")
+    expect(frame).toContain("New Codex Session")
+    expect(frame).toContain("Direct Shell (no tmux)")
     expect(frame).toContain("Resume: s1")
     expect(frame).toContain("Resume: s2")
     expect(frame).toContain("Resume: s3")
@@ -202,6 +208,11 @@ describe("App e2e flows", () => {
     await app.pressDown()
     await app.pressDown()
     await app.pressDown()
+    await app.pressDown()
+    await app.pressDown()
+    await app.pressDown()
+    await app.pressDown()
+    await app.pressDown()
     await app.pressEnter()
     expect(app.captureCharFrame()).toContain("Resume session")
   })
@@ -216,6 +227,9 @@ describe("App e2e flows", () => {
       ],
     })
 
+    await app.pressDown()
+    await app.pressDown()
+    await app.pressDown()
     await app.pressDown()
     await app.pressDown()
     await app.pressDown()
@@ -345,6 +359,9 @@ describe("App e2e flows", () => {
       resumeError: "resume failed",
     })
 
+    await app.pressDown()
+    await app.pressDown()
+    await app.pressDown()
     await app.pressEnter()
     await app.settle()
 

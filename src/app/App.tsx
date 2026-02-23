@@ -166,14 +166,14 @@ export function buildHomeOptions(sessions: SessionMeta[], maxSessionOptions: num
   })
 
   const options: HomeOption[] = [
-    ...sessionOptions,
     { kind: "new_session", agent: "opencode", label: "New OpenCode Session" },
     { kind: "new_session", agent: "codex", label: "New Codex Session" },
     { kind: "direct_shell", label: "Direct Shell (no tmux)" },
+    ...sessionOptions,
   ]
 
   if (sessions.length > maxSessionOptions) {
-    options.splice(sessionOptions.length, 0, {
+    options.push({
       kind: "resume_menu",
       label: `More sessions (${sessions.length - maxSessionOptions})`,
     })
