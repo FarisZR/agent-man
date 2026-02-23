@@ -13,15 +13,50 @@ It manages persistent tmux sessions and launches either OpenCode or Codex in per
 - `codex`
 - `opencode`
 
-## Core layers
+## Layers
 
-- `src/index.tsx`: lifecycle bootstrap, renderer setup/cleanup, process exit routing.
-- `src/app/*`: UI state machine and keyboard-driven screen routing.
-- `src/services/*`: shell/tmux/workspace/dependency/agent command orchestration.
+- `src/index.tsx`: renderer bootstrap, fatal handler wiring, and final process routing.
+- `src/app/*`: keyboard-driven state machine and screen rendering.
+- `src/services/*`: command execution and domain services.
+
+## Service interfaces
+
+### Runner (`src/services/runner.ts`)
+
+- `run(cmd, args, { cwd }) -> { stdout, stderr, exitCode }`
+- deterministic output object used by all services
+
+### Dependency service (`src/services/deps.ts`)
+
+- `checkBinary(name)`
+- `checkRequired(agent)`
+- `assertRequired(agent)`
+
+Common required binaries: `tmux`, `gh`.
+Agent-specific binaries: `opencode` or `codex`.
+
+### Workspace service (`src/services/workspace.ts`)
+
+- home expansion: `~` and `~/...`
+- directory resolution and creation
+- repo normalization:
+- `OWNER/REPO`
+- `https://github.com/OWNER/REPO(.git)`
+- `git@github.com:OWNER/REPO(.git)`
+- clone via `gh repo clone <repo> <targetDir>`
+
+### tmux service (`src/services/tmux.ts`)
+
+- `listSessions()` using:
+`tmux list-sessions -F "#{session_name}|#{session_attached}|#{session_activity}|#{@agent_man_agent}|#{@agent_man_workspace}|#{@agent_man_repo}|#{@agent_man_created_at}"`
+- `createSession(name, cwd)`
+- `setMetadata(name, metadata)`
+- `sendCommand(name, argv)`
+- `attachSession(name)` (multi-attach behavior, no `-d`)
 
 ## Session model
 
-Every managed tmux session uses the `agent-man-` prefix and stores metadata:
+Every managed tmux session uses prefix `agent-man-` and stores metadata:
 
 - `@agent_man_agent`
 - `@agent_man_workspace`
