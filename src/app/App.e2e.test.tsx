@@ -1,4 +1,7 @@
 import { afterEach, describe, expect, it } from "bun:test"
+import { mkdir, rm } from "node:fs/promises"
+import { homedir } from "node:os"
+import { join } from "node:path"
 import { createTestRenderer, type MockInput, type TestRenderer } from "@opentui/core/testing"
 import { createRoot, type Root } from "@opentui/react"
 import { act } from "react"
@@ -214,6 +217,7 @@ describe("App e2e flows", () => {
     await app.pressDown()
     await app.pressDown()
     await app.pressEnter()
+    await app.settle()
     expect(app.captureCharFrame()).toContain("Resume session")
   })
 
@@ -261,6 +265,48 @@ describe("App e2e flows", () => {
     await app.pressEnter()
     await app.settle()
     expect(app.captureCharFrame()).toContain("Directory name:")
+  })
+
+  it("suggests existing directories and autocompletes selection", async () => {
+    const home = homedir()
+    const suffix = `agent-man-open-${Date.now()}`
+    const first = join(home, `${suffix}-a`)
+    const second = join(home, `${suffix}-b`)
+    await mkdir(first, { recursive: true })
+    await mkdir(second, { recursive: true })
+
+    try {
+      const app = await renderApp({ sessions: [] })
+
+      await app.pressEnter()
+      await app.pressDown()
+      await app.pressEnter()
+
+      await app.typeText(`~/${suffix}`)
+      await app.settle()
+
+      const frame = app.captureCharFrame()
+      expect(frame).toContain("Matches:")
+      expect(frame).toContain(`~/${suffix}-a`)
+      expect(frame).toContain(`~/${suffix}-b`)
+
+      await app.pressDown()
+      await app.pressUp()
+      await app.pressDown()
+      await app.pressEnter()
+      await app.settle()
+
+      const completed = app.captureCharFrame()
+      expect(completed).toContain(`~/${suffix}-b`)
+      expect(app.createInputs).toEqual([])
+
+      await app.pressEnter()
+      expect(app.createInputs[0]?.source).toBe("existing_dir")
+      expect(app.createInputs[0]?.existingDirPath).toBe(`~/${suffix}-b`)
+    } finally {
+      await rm(first, { recursive: true, force: true })
+      await rm(second, { recursive: true, force: true })
+    }
   })
 
   it("creates an OpenCode session from new_dir", async () => {

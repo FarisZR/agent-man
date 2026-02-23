@@ -14,13 +14,17 @@ import {
   isEnterKey,
   isPrintable,
   isUp,
+  listExistingDirSuggestions,
   sourceLabel,
+  expandHomePath,
+  fuzzyDirectoryMatchScore,
 } from "./App"
 
 describe("App helper functions", () => {
   it("detects key categories", () => {
     expect(isEnterKey("return")).toBe(true)
     expect(isEnterKey("enter")).toBe(true)
+    expect(isEnterKey(undefined, "\r")).toBe(true)
     expect(isEnterKey("space")).toBe(false)
 
     expect(isBackspace("backspace")).toBe(true)
@@ -103,6 +107,85 @@ describe("App helper functions", () => {
     expect(isPrintable({ sequence: "a", ctrl: true })).toBe(false)
     expect(isPrintable({ sequence: "a", meta: true })).toBe(false)
     expect(isPrintable({})).toBe(false)
+  })
+
+  it("expands tilde home paths", () => {
+    expect(expandHomePath("~", "/home/tester")).toBe("/home/tester")
+    expect(expandHomePath("~/open", "/home/tester")).toBe("/home/tester/open")
+    expect(expandHomePath("/tmp", "/home/tester")).toBe("/tmp")
+  })
+
+  it("lists existing-dir suggestions from home index", async () => {
+    const suggestions = await listExistingDirSuggestions("~/open", {
+      homeDir: "/home/tester",
+      cwd: "/work",
+      readDir: async () => [
+        { name: "opencode-xyz", isDirectory: () => true },
+        { name: "openclaw", isDirectory: () => true },
+        { name: "other", isDirectory: () => true },
+        { name: "open-file.txt", isDirectory: () => false },
+      ],
+    })
+
+    expect(suggestions).toEqual(["~/openclaw", "~/opencode-xyz"])
+  })
+
+  it("handles existing-dir suggestion edge cases", async () => {
+    const slashInput = await listExistingDirSuggestions("~/projects/", {
+      homeDir: "/home/tester",
+      cwd: "/work",
+      readDir: async () => [
+        { name: "open-proj", isDirectory: () => true },
+      ],
+    })
+    expect(slashInput).toEqual(["~/projects/open-proj"])
+
+    const absoluteInput = await listExistingDirSuggestions("/tmp/op", {
+      homeDir: "/home/tester",
+      cwd: "/work",
+      readDir: async () => [
+        { name: "open-a", isDirectory: () => true },
+      ],
+    })
+    expect(absoluteInput).toEqual(["/tmp/open-a"])
+
+    const outsideHome = await listExistingDirSuggestions("~../../tmp/op", {
+      homeDir: "/home/tester",
+      cwd: "/work",
+      readDir: async () => [
+        { name: "open-b", isDirectory: () => true },
+      ],
+    })
+    expect(outsideHome).toEqual(["/work/tmp/open-b"])
+
+    const errored = await listExistingDirSuggestions("~/open", {
+      homeDir: "/home/tester",
+      cwd: "/work",
+      readDir: async () => {
+        throw new Error("boom")
+      },
+    })
+    expect(errored).toEqual([])
+  })
+
+  it("scores fuzzy directory matches", () => {
+    expect(fuzzyDirectoryMatchScore("openclaw", "open")).toBeGreaterThan(0)
+    expect(fuzzyDirectoryMatchScore("openclaw", "ocw")).toBeGreaterThan(0)
+    expect(fuzzyDirectoryMatchScore("openclaw", "zzz")).toBeNull()
+    expect(fuzzyDirectoryMatchScore("openclaw", "")).toBe(0)
+  })
+
+  it("applies fuzzy matching for existing-dir suggestions", async () => {
+    const suggestions = await listExistingDirSuggestions("~/ocw", {
+      homeDir: "/home/tester",
+      cwd: "/work",
+      readDir: async () => [
+        { name: "openclaw", isDirectory: () => true },
+        { name: "opencode-xyz", isDirectory: () => true },
+      ],
+    })
+
+    expect(suggestions).toEqual(["~/openclaw"])
   })
 
   it("updates form screen safely", () => {

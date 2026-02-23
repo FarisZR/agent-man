@@ -1,4 +1,7 @@
-import { useEffect, useMemo, useState } from "react"
+import { readdir } from "node:fs/promises"
+import { homedir } from "node:os"
+import { dirname, join, resolve } from "node:path"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useKeyboard, useRenderer } from "@opentui/react"
 import type { AppController, AppExit, AgentKind, CreateSessionInput, SessionMeta, SourceKind } from "./types"
 
@@ -34,6 +37,18 @@ export interface KeyboardEventLike {
   meta?: boolean
 }
 
+export interface DirectoryEntryLike {
+  name: string
+  isDirectory: () => boolean
+}
+
+interface ExistingDirSuggestionOptions {
+  homeDir?: string
+  cwd?: string
+  limit?: number
+  readDir?: (path: string) => Promise<DirectoryEntryLike[]>
+}
+
 interface HandleKeyboardInputParams {
   key: KeyboardEventLike
   screen: ScreenState
@@ -45,8 +60,8 @@ interface HandleKeyboardInputParams {
   runCreate: (agent: AgentKind, source: SourceKind, input: string) => void
 }
 
-export function isEnterKey(name: string | undefined): boolean {
-  return name === "return" || name === "enter"
+export function isEnterKey(name: string | undefined, sequence?: string): boolean {
+  return name === "return" || name === "enter" || sequence === "\r" || sequence === "\n"
 }
 
 export function isBackspace(name: string | undefined): boolean {
@@ -119,6 +134,127 @@ export function buildCreateInput(
         workspaceRoot,
         repoInput: input,
       }
+  }
+}
+
+export function expandHomePath(value: string, home: string = homedir()): string {
+  if (value === "~") {
+    return home
+  }
+
+  if (value.startsWith("~/")) {
+    return join(home, value.slice(2))
+  }
+
+  return value
+}
+
+function collapseHomePath(value: string, home: string): string {
+  if (value.startsWith(`${home}/`)) {
+    return `~/${value.slice(home.length + 1)}`
+  }
+
+  return value
+}
+
+function parseExistingDirInput(input: string, home: string, cwd: string): { lookupDir: string; prefix: string; useTilde: boolean } {
+  const trimmed = input.trim()
+  const useTilde = trimmed.startsWith("~")
+
+  if (!trimmed) {
+    return { lookupDir: home, prefix: "", useTilde: true }
+  }
+
+  const expanded = expandHomePath(trimmed, home)
+  const absolute = resolve(cwd, expanded)
+
+  if (trimmed.endsWith("/")) {
+    return { lookupDir: absolute, prefix: "", useTilde }
+  }
+
+  return {
+    lookupDir: dirname(absolute),
+    prefix: absolute.slice(dirname(absolute).length + 1),
+    useTilde,
+  }
+}
+
+export function fuzzyDirectoryMatchScore(name: string, query: string): number | null {
+  const queryLower = query.trim().toLowerCase()
+  if (!queryLower) {
+    return 0
+  }
+
+  const nameLower = name.toLowerCase()
+  if (nameLower.startsWith(queryLower)) {
+    return 1000 - nameLower.length
+  }
+
+  let queryIndex = 0
+  let firstMatch = -1
+  let lastMatch = -1
+  let gapPenalty = 0
+
+  for (let index = 0; index < nameLower.length && queryIndex < queryLower.length; index += 1) {
+    if (nameLower[index] !== queryLower[queryIndex]) {
+      continue
+    }
+
+    if (firstMatch === -1) {
+      firstMatch = index
+    }
+
+    if (lastMatch >= 0) {
+      gapPenalty += index - lastMatch - 1
+    }
+
+    lastMatch = index
+    queryIndex += 1
+  }
+
+  if (queryIndex < queryLower.length) {
+    return null
+  }
+
+  return 500 - firstMatch * 2 - gapPenalty - (nameLower.length - queryLower.length)
+}
+
+export async function listExistingDirSuggestions(
+  input: string,
+  options: ExistingDirSuggestionOptions = {},
+): Promise<string[]> {
+  const home = options.homeDir ?? homedir()
+  const cwd = options.cwd ?? process.cwd()
+  const limit = options.limit ?? 8
+  const readDir = options.readDir ?? (async (path: string) => await readdir(path, { withFileTypes: true }))
+  const { lookupDir, prefix, useTilde } = parseExistingDirInput(input, home, cwd)
+
+  try {
+    const entries = await readDir(lookupDir)
+    const names = entries
+      .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
+      .map((entry) => entry.name)
+      .map((name) => ({ name, score: fuzzyDirectoryMatchScore(name, prefix) }))
+      .filter((entry) => entry.score !== null)
+      .sort((a, b) => {
+        if (a.score !== b.score) {
+          return (b.score ?? 0) - (a.score ?? 0)
+        }
+
+        return a.name.localeCompare(b.name)
+      })
+      .map((entry) => entry.name)
+      .slice(0, limit)
+
+    return names.map((name) => {
+      const full = join(lookupDir, name)
+      if (useTilde) {
+        return collapseHomePath(full, home)
+      }
+      return full
+    })
+  } catch {
+    return []
   }
 }
 
@@ -213,16 +349,22 @@ export function handleKeyboardInput({
 
   if (screen.kind === "home") {
     if (isUp(key.name)) {
-      setScreen({ ...screen, selected: clampIndex(screen.selected, -1, homeOptions.length) })
+      setScreen((current) => {
+        if (current.kind !== "home") return current
+        return { ...current, selected: clampIndex(current.selected, -1, homeOptions.length) }
+      })
       return
     }
 
     if (isDown(key.name)) {
-      setScreen({ ...screen, selected: clampIndex(screen.selected, 1, homeOptions.length) })
+      setScreen((current) => {
+        if (current.kind !== "home") return current
+        return { ...current, selected: clampIndex(current.selected, 1, homeOptions.length) }
+      })
       return
     }
 
-    if (!isEnterKey(key.name)) {
+    if (!isEnterKey(key.name, key.sequence)) {
       return
     }
 
@@ -249,17 +391,23 @@ export function handleKeyboardInput({
 
   if (screen.kind === "resume") {
     if (isUp(key.name)) {
-      setScreen({ ...screen, selected: clampIndex(screen.selected, -1, sessions.length) })
+      setScreen((current) => {
+        if (current.kind !== "resume") return current
+        return { ...current, selected: clampIndex(current.selected, -1, sessions.length) }
+      })
       return
     }
 
     if (isDown(key.name)) {
-      setScreen({ ...screen, selected: clampIndex(screen.selected, 1, sessions.length) })
+      setScreen((current) => {
+        if (current.kind !== "resume") return current
+        return { ...current, selected: clampIndex(current.selected, 1, sessions.length) }
+      })
       return
     }
 
     const selectedSession = sessions[screen.selected]
-    if (isEnterKey(key.name) && selectedSession) {
+    if (isEnterKey(key.name, key.sequence) && selectedSession) {
       runResume(selectedSession.name)
     }
     return
@@ -267,16 +415,22 @@ export function handleKeyboardInput({
 
   if (screen.kind === "source") {
     if (isUp(key.name)) {
-      setScreen({ ...screen, selected: clampIndex(screen.selected, -1, SOURCE_OPTIONS.length) })
+      setScreen((current) => {
+        if (current.kind !== "source") return current
+        return { ...current, selected: clampIndex(current.selected, -1, SOURCE_OPTIONS.length) }
+      })
       return
     }
 
     if (isDown(key.name)) {
-      setScreen({ ...screen, selected: clampIndex(screen.selected, 1, SOURCE_OPTIONS.length) })
+      setScreen((current) => {
+        if (current.kind !== "source") return current
+        return { ...current, selected: clampIndex(current.selected, 1, SOURCE_OPTIONS.length) }
+      })
       return
     }
 
-    if (isEnterKey(key.name)) {
+    if (isEnterKey(key.name, key.sequence)) {
       setScreen({
         kind: "form",
         agent: screen.agent,
@@ -296,7 +450,7 @@ export function handleKeyboardInput({
       return
     }
 
-    if (isEnterKey(key.name)) {
+    if (isEnterKey(key.name, key.sequence)) {
       runCreate(screen.agent, screen.source, screen.input)
       return
     }
@@ -309,10 +463,85 @@ export function handleKeyboardInput({
   }
 }
 
+// ── Theme ──────────────────────────────────────────────────────────────────
+
+const theme = {
+  gold: "#D4A017",
+  goldDim: "#B8860B",
+  text: "#CCCCCC",
+  textBright: "#FFFFFF",
+  muted: "#888888",
+  mutedDim: "#666666",
+  border: "#555555",
+  red: "#CC3333",
+  green: "#2E8B57",
+  selectedFg: "#D4A017",
+} as const
+
+function useSpinner(): string {
+  return ""
+}
+
+// ── Render helpers ─────────────────────────────────────────────────────────
+
+function MenuOption({
+  label,
+  selected,
+}: {
+  label: string
+  selected: boolean
+}) {
+  if (selected) {
+    return (
+      <box flexDirection="row" width="100%">
+        <text fg={theme.gold}>
+          <b>{"  ▸ "}{label}</b>
+        </text>
+      </box>
+    )
+  }
+  return (
+    <box flexDirection="row" width="100%">
+      <text fg={theme.text}>{"    "}{label}</text>
+    </box>
+  )
+}
+
+function SectionHeader({ title }: { title: string }) {
+  return (
+    <text fg={theme.muted}>
+      <b>{"  "}{title}</b>
+    </text>
+  )
+}
+
+function KeyHint({ keyName, description }: { keyName: string; description: string }) {
+  return (
+    <text>
+      <span fg={theme.gold}>
+        <b>{keyName}</b>
+      </span>
+      <span fg={theme.mutedDim}>{" " + description}</span>
+    </text>
+  )
+}
+
+// ── App ────────────────────────────────────────────────────────────────────
+
 export function App({ controller, workspaceRoot, onExit }: AppProps) {
   const renderer = useRenderer()
   const [sessions, setSessions] = useState<SessionMeta[]>([])
   const [screen, setScreen] = useState<ScreenState>({ kind: "home", selected: 0, status: "Loading sessions..." })
+  const [existingDirSuggestions, setExistingDirSuggestions] = useState<string[]>([])
+  const [existingDirSuggestionIndex, setExistingDirSuggestionIndex] = useState(0)
+  const screenRef = useRef(screen)
+  const sessionsRef = useRef(sessions)
+  const existingDirSuggestionsRef = useRef(existingDirSuggestions)
+  const existingDirSuggestionIndexRef = useRef(existingDirSuggestionIndex)
+  screenRef.current = screen
+  sessionsRef.current = sessions
+  existingDirSuggestionsRef.current = existingDirSuggestions
+  existingDirSuggestionIndexRef.current = existingDirSuggestionIndex
 
   async function loadSessions(status?: string) {
     try {
@@ -328,6 +557,8 @@ export function App({ controller, workspaceRoot, onExit }: AppProps) {
   useEffect(() => {
     void loadSessions()
   }, [])
+
+  const homeOptions = useMemo(() => buildHomeOptions(sessions), [sessions])
 
   const homeLines = useMemo(() => {
     const options = buildHomeOptions(sessions)
@@ -354,6 +585,8 @@ export function App({ controller, workspaceRoot, onExit }: AppProps) {
       return `${marker} ${sourceLabel(source)}`
     })
   }, [screen])
+
+  const spinner = useSpinner()
 
   async function runResume(sessionName: string) {
     setScreen({ kind: "busy", message: `Preparing resume for ${sessionName}...` })
@@ -403,12 +636,54 @@ export function App({ controller, workspaceRoot, onExit }: AppProps) {
     }
   }, [renderer])
 
+  useEffect(() => {
+    if (screen.kind !== "form" || screen.source !== "existing_dir") {
+      setExistingDirSuggestions((current) => (current.length > 0 ? [] : current))
+      setExistingDirSuggestionIndex((current) => (current === 0 ? current : 0))
+      return
+    }
+
+    void listExistingDirSuggestions(screen.input).then((next) => {
+      setExistingDirSuggestions(next)
+      setExistingDirSuggestionIndex(0)
+    })
+  }, [screen.kind, screen.kind === "form" ? screen.source : undefined, screen.kind === "form" ? screen.input : undefined])
+
   useKeyboard((key) => {
-    const homeOptions = buildHomeOptions(sessions)
+    const currentScreen = screenRef.current
+    const currentSessions = sessionsRef.current
+    const currentExistingDirSuggestions = existingDirSuggestionsRef.current
+    const currentExistingDirSuggestionIndex = existingDirSuggestionIndexRef.current
+    const selectedExistingDirSuggestion = currentExistingDirSuggestions[currentExistingDirSuggestionIndex]
+
+    if (currentScreen.kind === "form" && currentScreen.source === "existing_dir") {
+      if (isDown(key.name) && currentExistingDirSuggestions.length > 0) {
+        setExistingDirSuggestionIndex((current) => clampIndex(current, 1, currentExistingDirSuggestions.length))
+        return
+      }
+
+      if (isUp(key.name) && currentExistingDirSuggestions.length > 0) {
+        setExistingDirSuggestionIndex((current) => clampIndex(current, -1, currentExistingDirSuggestions.length))
+        return
+      }
+
+      if (
+        (key.name === "tab" || isEnterKey(key.name, key.sequence))
+        && selectedExistingDirSuggestion
+        && currentScreen.input !== selectedExistingDirSuggestion
+      ) {
+        setScreen((current) => {
+          return updateFormScreen(current, (form) => ({ ...form, input: selectedExistingDirSuggestion, error: undefined }))
+        })
+        return
+      }
+    }
+
+    const homeOptions = buildHomeOptions(currentSessions)
     handleKeyboardInput({
       key,
-      screen,
-      sessions,
+      screen: currentScreen,
+      sessions: currentSessions,
       homeOptions,
       onExit,
       setScreen,
@@ -423,58 +698,201 @@ export function App({ controller, workspaceRoot, onExit }: AppProps) {
 
   return (
     <box flexDirection="column" padding={1}>
-      <text>agent-man</text>
-      <text>Persistent coding-agent sessions with tmux</text>
+      {/* ── Logo ─────────────────────────────────────────────── */}
+      <ascii-font text="AGENT-MAN" font="block" color={[theme.gold, theme.goldDim]} />
+      <text fg={theme.muted}>
+        {"  "}Persistent coding-agent sessions with tmux
+      </text>
       <text> </text>
 
+      {/* ── Home screen ──────────────────────────────────────── */}
       {screen.kind === "home" && (
-        <box flexDirection="column">
-          <text>Sessions and actions</text>
-          {homeLines.map((line) => (
-            <text key={line}>{line}</text>
-          ))}
+        <box flexDirection="column" gap={0}>
+          <box
+            flexDirection="column"
+            border={true}
+            borderStyle="heavy"
+            borderColor={theme.border}
+            paddingX={1}
+            paddingY={0}
+          >
+            <SectionHeader title="Sessions and actions" />
+            <text> </text>
+            {homeOptions.map((option, index) => {
+              const selected = index === screen.selected
+              return (
+                <MenuOption
+                  key={option.label}
+                  label={option.label}
+                  selected={selected}
+                />
+              )
+            })}
+            <text> </text>
+          </box>
+
           <text> </text>
-          <text>Known sessions: {sessions.length}</text>
-          {screen.status && <text>{screen.status}</text>}
+          <text fg={theme.muted}>
+            {"  "}Known sessions:{" "}
+            <span fg={theme.gold}>
+              <b>{String(sessions.length)}</b>
+            </span>
+          </text>
+          {screen.status && (
+            <text fg={screen.status.startsWith("Failed") ? theme.red : theme.gold}>
+              {"  "}{screen.status}
+            </text>
+          )}
         </box>
       )}
 
+      {/* ── Resume screen ────────────────────────────────────── */}
       {screen.kind === "resume" && (
-        <box flexDirection="column">
-          <text>Resume session</text>
-          {resumeLines.length > 0 ? resumeLines.map((line) => <text key={line}>{line}</text>) : <text>No sessions found.</text>}
-          {screen.status && <text>{screen.status}</text>}
+        <box
+          flexDirection="column"
+          border={true}
+          borderStyle="heavy"
+          borderColor={theme.border}
+          paddingX={1}
+          paddingY={0}
+        >
+          <SectionHeader title="Resume session" />
+          <text> </text>
+          {resumeLines.length > 0 ? (
+            sessions.map((session, index) => {
+              const selected = screen.selected === index
+              const attachState = session.attached ? "attached" : "idle"
+              const agent = session.agent ?? "unknown"
+              const label = `${session.name} (${agent}, ${attachState})`
+              return (
+                <MenuOption
+                  key={session.name}
+                  label={label}
+                  selected={selected}
+                />
+              )
+            })
+          ) : (
+            <text fg={theme.muted}>{"    No sessions found."}</text>
+          )}
+          <text> </text>
+          {screen.status && (
+            <text fg={theme.gold}>{"  "}{screen.status}</text>
+          )}
         </box>
       )}
 
+      {/* ── Source selection screen ───────────────────────────── */}
       {screen.kind === "source" && (
-        <box flexDirection="column">
-          <text>New {screen.agent} session</text>
-          {sourceLines.map((line) => (
-            <text key={line}>{line}</text>
-          ))}
-          {screen.status && <text>{screen.status}</text>}
+        <box
+          flexDirection="column"
+          border={true}
+          borderStyle="heavy"
+          borderColor={theme.border}
+          paddingX={1}
+          paddingY={0}
+        >
+          <SectionHeader
+            title={`New ${screen.agent} session`}
+          />
+          <text> </text>
+          {SOURCE_OPTIONS.map((source, index) => {
+            const selected = screen.selected === index
+            return (
+              <MenuOption
+                key={source}
+                label={sourceLabel(source)}
+                selected={selected}
+              />
+            )
+          })}
+          <text> </text>
+          {screen.status && (
+            <text fg={theme.gold}>{"  "}{screen.status}</text>
+          )}
         </box>
       )}
 
+      {/* ── Form screen ──────────────────────────────────────── */}
       {screen.kind === "form" && (
-        <box flexDirection="column">
-          <text>New {screen.agent} session</text>
-          <text>{formPrompt(screen.source)}:</text>
-          <text>{screen.input || "_"}</text>
-          <text>Workspace root: {workspaceRoot}</text>
-          {screen.error && <text>{screen.error}</text>}
+        <box
+          flexDirection="column"
+          border={true}
+          borderStyle="heavy"
+          borderColor={screen.error ? theme.red : theme.border}
+          paddingX={1}
+          paddingY={0}
+        >
+          <SectionHeader
+            title={`New ${screen.agent} session`}
+          />
+          <text> </text>
+          <text fg={theme.text}>
+            {"  "}{formPrompt(screen.source)}:
+          </text>
+          <box flexDirection="row" marginLeft={2}>
+            <text fg={theme.gold}>{"  ▸ "}</text>
+            <text fg={theme.textBright}>
+              <b>{screen.input || ""}</b>
+            </text>
+            <text fg={theme.gold}>{"_"}</text>
+          </box>
+          <text> </text>
+          <text fg={theme.mutedDim}>
+            {"  "}Workspace root:{" "}
+            <span fg={theme.muted}>{workspaceRoot}</span>
+          </text>
+          {screen.source === "existing_dir" && existingDirSuggestions.length > 0 && (
+            <box flexDirection="column" marginTop={1}>
+              <text fg={theme.muted}>{"  Matches:"}</text>
+              {existingDirSuggestions.map((suggestion, index) => (
+                <text key={suggestion} fg={index === existingDirSuggestionIndex ? theme.gold : theme.text}>
+                  {index === existingDirSuggestionIndex ? "  ▸ " : "    "}
+                  {suggestion}
+                </text>
+              ))}
+              <text fg={theme.mutedDim}>{"  tab/enter to autocomplete"}</text>
+            </box>
+          )}
+          {screen.error && (
+            <text fg={theme.red}>
+              {"  "}{screen.error}
+            </text>
+          )}
+          <text> </text>
         </box>
       )}
 
+      {/* ── Busy screen ──────────────────────────────────────── */}
       {screen.kind === "busy" && (
-        <box>
-          <text>{screen.message}</text>
+        <box
+          flexDirection="column"
+          border={true}
+          borderStyle="heavy"
+          borderColor={theme.gold}
+          paddingX={1}
+          paddingY={0}
+        >
+          <text> </text>
+          <box flexDirection="row" marginLeft={2}>
+            <text fg={theme.gold}>
+              <b>{spinner} </b>
+            </text>
+            <text fg={theme.text}>{screen.message}</text>
+          </box>
+          <text> </text>
         </box>
       )}
 
+      {/* ── Footer ───────────────────────────────────────────── */}
       <text> </text>
-      <text>Keys: up/down (or j/k), enter select, esc back, q quit, ctrl+c hard exit</text>
+      <box flexDirection="row" gap={2} marginLeft={1}>
+        <KeyHint keyName={"↑↓"} description="navigate" />
+        <KeyHint keyName={"⏎"} description="select" />
+        <KeyHint keyName="esc" description="back" />
+        <KeyHint keyName="q" description="quit" />
+        <KeyHint keyName="^C" description="hard exit" />
+      </box>
     </box>
   )
 }
