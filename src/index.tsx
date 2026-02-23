@@ -8,7 +8,7 @@ import { SystemRunner } from "./services/runner"
 import { TmuxService } from "./services/tmux"
 import { WorkspaceService } from "./services/workspace"
 
-const WORKSPACE_ROOT = "~/agent-sessions"
+const WORKSPACE_ROOT = "~/"
 let activeCleanup: (() => void) | null = null
 
 function asErrorMessage(error: unknown): string {
