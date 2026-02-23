@@ -81,6 +81,18 @@ describe("TmuxService", () => {
     await expect(service.listSessions()).resolves.toEqual([])
   })
 
+  it("handles tmux socket missing errors as an empty list", async () => {
+    const runner = new QueueRunner()
+    runner.enqueue({
+      stdout: "",
+      stderr: "error connecting to /tmp/tmux-1015/default (no such file or directory)",
+      exitCode: 1,
+    })
+
+    const service = new TmuxService(runner)
+    await expect(service.listSessions()).resolves.toEqual([])
+  })
+
   it("throws for list failures unrelated to missing server", async () => {
     const runner = new QueueRunner()
     runner.enqueue({ stdout: "", stderr: "permission denied", exitCode: 1 })

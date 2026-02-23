@@ -7,6 +7,15 @@ const SESSION_FORMAT =
 
 export const DEFAULT_SESSION_PREFIX = "agent-man-"
 
+function isNoTmuxServerError(stderr: string): boolean {
+  const normalized = stderr.toLowerCase()
+  return (
+    normalized.includes("no server running") ||
+    normalized.includes("failed to connect to server") ||
+    (normalized.includes("error connecting to") && normalized.includes("no such file or directory"))
+  )
+}
+
 export interface TmuxMetadata {
   agent: AgentKind
   workspace: string
@@ -80,7 +89,7 @@ export class TmuxService {
 
     if (result.exitCode !== 0) {
       const stderr = result.stderr.trim()
-      if (stderr.includes("no server running") || stderr.includes("failed to connect to server")) {
+      if (isNoTmuxServerError(stderr)) {
         return []
       }
       assertCommandSucceeded(result, "tmux list-sessions")
