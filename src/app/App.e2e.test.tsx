@@ -259,6 +259,7 @@ describe("App e2e flows", () => {
 
     await app.pressUp()
     await app.pressEnter()
+    await app.settle()
     expect(app.captureCharFrame()).toContain("Directory name:")
   })
 
