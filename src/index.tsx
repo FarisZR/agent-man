@@ -9,8 +9,7 @@ import { TmuxService } from "./services/tmux"
 import { WorkspaceService } from "./services/workspace"
 
 const WORKSPACE_ROOT = "~/agent-sessions"
-
-let destroyed = false
+let activeCleanup: (() => void) | null = null
 
 function asErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
@@ -27,41 +26,59 @@ async function runAttach(sessionName: string): Promise<number> {
   return exitCode
 }
 
-const renderer = await createCliRenderer({
-  exitOnCtrlC: false,
-})
-
-const root = createRoot(renderer)
-
-function safeDestroy() {
-  if (destroyed) {
-    return
-  }
-  destroyed = true
-
-  try {
-    root.unmount()
-  } catch {
-    // Ignore unmount errors during shutdown.
-  }
-
-  renderer.destroy()
+function setActiveCleanup(cleanup: () => void) {
+  activeCleanup = cleanup
 }
 
 function fatalExit(error: unknown) {
   const message = asErrorMessage(error)
   console.error(message)
-  safeDestroy()
+  activeCleanup?.()
   process.exit(1)
 }
 
 process.on("uncaughtException", fatalExit)
 process.on("unhandledRejection", fatalExit)
 
-let resolveExit: (exit: AppExit) => void = () => {}
-const exitPromise = new Promise<AppExit>((resolve) => {
-  resolveExit = resolve
-})
+async function runApp(controller: AgentManController): Promise<AppExit> {
+  const renderer = await createCliRenderer({
+    exitOnCtrlC: false,
+  })
+  const root = createRoot(renderer)
+
+  let destroyed = false
+  const safeDestroy = () => {
+    if (destroyed) {
+      return
+    }
+    destroyed = true
+
+    try {
+      root.unmount()
+    } catch {
+      // Ignore unmount errors during shutdown.
+    }
+
+    renderer.destroy()
+  }
+
+  setActiveCleanup(safeDestroy)
+
+  let resolveExit: (exit: AppExit) => void = () => {}
+  const exitPromise = new Promise<AppExit>((resolve) => {
+    resolveExit = resolve
+  })
+
+  root.render(<App controller={controller} workspaceRoot={WORKSPACE_ROOT} onExit={resolveExit} />)
+
+  const exit = await exitPromise
+  safeDestroy()
+  if (activeCleanup === safeDestroy) {
+    activeCleanup = null
+  }
+
+  return exit
+}
 
 const runner = new SystemRunner()
 const controller = new AgentManController({
@@ -69,19 +86,19 @@ const controller = new AgentManController({
   tmux: new TmuxService(runner),
   workspace: new WorkspaceService(runner),
 })
-root.render(<App controller={controller} workspaceRoot={WORKSPACE_ROOT} onExit={resolveExit} />)
 
-const exit = await exitPromise
+while (true) {
+  const exit = await runApp(controller)
 
-safeDestroy()
+  if (exit.reason === "attach" && exit.sessionName) {
+    await runAttach(exit.sessionName)
+    continue
+  }
 
-if (exit.reason === "attach" && exit.sessionName) {
-  const attachCode = await runAttach(exit.sessionName)
-  process.exit(attachCode)
+  if (exit.reason === "fatal_error") {
+    console.error(exit.error ?? "fatal error")
+    process.exit(1)
+  }
+
+  process.exit(exit.code)
 }
-
-if (exit.reason === "fatal_error") {
-  console.error(exit.error ?? "fatal error")
-}
-
-process.exit(exit.code)

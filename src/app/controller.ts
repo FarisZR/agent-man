@@ -86,7 +86,7 @@ export class AgentManController implements AppController {
       repo,
       createdAt,
     })
-    await this.services.tmux.sendCommand(sessionName, agentCommand(input.agent))
+    await this.services.tmux.sendCommand(sessionName, ["exec", ...agentCommand(input.agent)])
 
     return {
       reason: "attach",

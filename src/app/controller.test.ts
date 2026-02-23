@@ -116,7 +116,7 @@ describe("AgentManController", () => {
     if (!created) {
       throw new Error("expected created session")
     }
-    expect(tmux.sent[0]).toEqual({ name: created.name, command: ["opencode"] })
+    expect(tmux.sent[0]).toEqual({ name: created.name, command: ["exec", "opencode"] })
     expect(result.reason).toBe("attach")
     expect(result.sessionName).toBe(created.name)
   })
@@ -139,7 +139,7 @@ describe("AgentManController", () => {
     }
     expect(tmux.sent[0]).toEqual({
       name: created.name,
-      command: ["codex", "--dangerously-bypass-approvals-and-sandbox", "--search"],
+      command: ["exec", "codex", "--dangerously-bypass-approvals-and-sandbox", "--search"],
     })
     expect(result.reason).toBe("attach")
   })
