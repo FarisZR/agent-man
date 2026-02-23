@@ -8,39 +8,58 @@ interface AppProps {
   onExit: (exit: AppExit) => void
 }
 
-type ScreenState =
+export type ScreenState =
   | { kind: "home"; selected: number; status?: string }
   | { kind: "resume"; selected: number; status?: string }
   | { kind: "source"; agent: AgentKind; selected: number; status?: string }
   | { kind: "form"; agent: AgentKind; source: SourceKind; input: string; error?: string }
   | { kind: "busy"; message: string }
 
-const HOME_ACTIONS = [
+export type FormScreenState = Extract<ScreenState, { kind: "form" }>
+
+export const HOME_ACTIONS = [
   "Resume Session",
   "New OpenCode Session",
   "New Codex Session",
   "Direct Shell (no tmux)",
 ] as const
 
-const SOURCE_OPTIONS: SourceKind[] = ["new_dir", "existing_dir", "gh_clone"]
+export const SOURCE_OPTIONS: SourceKind[] = ["new_dir", "existing_dir", "gh_clone"]
 
-function isEnterKey(name: string | undefined): boolean {
+export interface KeyboardEventLike {
+  name?: string
+  sequence?: string
+  ctrl?: boolean
+  meta?: boolean
+}
+
+interface HandleKeyboardInputParams {
+  key: KeyboardEventLike
+  screen: ScreenState
+  sessions: SessionMeta[]
+  onExit: (exit: AppExit) => void
+  setScreen: (next: ScreenState | ((current: ScreenState) => ScreenState)) => void
+  runResume: (sessionName: string) => void
+  runCreate: (agent: AgentKind, source: SourceKind, input: string) => void
+}
+
+export function isEnterKey(name: string | undefined): boolean {
   return name === "return" || name === "enter"
 }
 
-function isBackspace(name: string | undefined): boolean {
+export function isBackspace(name: string | undefined): boolean {
   return name === "backspace" || name === "delete"
 }
 
-function isUp(name: string | undefined): boolean {
+export function isUp(name: string | undefined): boolean {
   return name === "up" || name === "k"
 }
 
-function isDown(name: string | undefined): boolean {
+export function isDown(name: string | undefined): boolean {
   return name === "down" || name === "j"
 }
 
-function clampIndex(current: number, delta: number, max: number): number {
+export function clampIndex(current: number, delta: number, max: number): number {
   if (max <= 0) {
     return 0
   }
@@ -48,7 +67,7 @@ function clampIndex(current: number, delta: number, max: number): number {
   return Math.max(0, Math.min(max - 1, current + delta))
 }
 
-function sourceLabel(source: SourceKind): string {
+export function sourceLabel(source: SourceKind): string {
   switch (source) {
     case "new_dir":
       return "New directory under workspace root"
@@ -59,7 +78,7 @@ function sourceLabel(source: SourceKind): string {
   }
 }
 
-function formPrompt(source: SourceKind): string {
+export function formPrompt(source: SourceKind): string {
   switch (source) {
     case "new_dir":
       return "Directory name"
@@ -70,7 +89,7 @@ function formPrompt(source: SourceKind): string {
   }
 }
 
-function buildCreateInput(
+export function buildCreateInput(
   agent: AgentKind,
   source: SourceKind,
   input: string,
@@ -101,12 +120,163 @@ function buildCreateInput(
   }
 }
 
-function isPrintable(event: { sequence?: string; ctrl?: boolean; meta?: boolean }): boolean {
+export function isPrintable(event: KeyboardEventLike): boolean {
   if (event.ctrl || event.meta) {
     return false
   }
 
   return Boolean(event.sequence && event.sequence.length === 1 && event.sequence >= " ")
+}
+
+export function updateFormScreen(
+  current: ScreenState,
+  updater: (screen: FormScreenState) => FormScreenState,
+): ScreenState {
+  if (current.kind !== "form") {
+    return current
+  }
+  return updater(current)
+}
+
+export function screenOnEscape(screen: ScreenState): ScreenState {
+  switch (screen.kind) {
+    case "home":
+      return screen
+    case "resume":
+      return { kind: "home", selected: 0, status: screen.status }
+    case "source":
+      return { kind: "home", selected: 0, status: screen.status }
+    case "form":
+      return { kind: "source", agent: screen.agent, selected: 0, status: undefined }
+    case "busy":
+      return screen
+  }
+}
+
+export function handleKeyboardInput({
+  key,
+  screen,
+  sessions,
+  onExit,
+  setScreen,
+  runResume,
+  runCreate,
+}: HandleKeyboardInputParams): void {
+  if (key.ctrl && key.name === "c") {
+    onExit({ reason: "quit", code: 130 })
+    return
+  }
+
+  if (key.name === "q") {
+    onExit({ reason: "quit", code: 0 })
+    return
+  }
+
+  if (screen.kind === "busy") {
+    return
+  }
+
+  if (key.name === "escape" || key.sequence === "\x1b") {
+    setScreen(screenOnEscape(screen))
+    return
+  }
+
+  if (screen.kind === "home") {
+    if (isUp(key.name)) {
+      setScreen({ ...screen, selected: clampIndex(screen.selected, -1, HOME_ACTIONS.length) })
+      return
+    }
+
+    if (isDown(key.name)) {
+      setScreen({ ...screen, selected: clampIndex(screen.selected, 1, HOME_ACTIONS.length) })
+      return
+    }
+
+    if (!isEnterKey(key.name)) {
+      return
+    }
+
+    switch (screen.selected) {
+      case 0:
+        if (sessions.length === 0) {
+          setScreen({ ...screen, status: "No agent-man sessions found." })
+          return
+        }
+
+        setScreen({ kind: "resume", selected: 0, status: undefined })
+        return
+      case 1:
+        setScreen({ kind: "source", agent: "opencode", selected: 0, status: undefined })
+        return
+      case 2:
+        setScreen({ kind: "source", agent: "codex", selected: 0, status: undefined })
+        return
+      case 3:
+        onExit({ reason: "direct_shell", code: 40 })
+        return
+    }
+  }
+
+  if (screen.kind === "resume") {
+    if (isUp(key.name)) {
+      setScreen({ ...screen, selected: clampIndex(screen.selected, -1, sessions.length) })
+      return
+    }
+
+    if (isDown(key.name)) {
+      setScreen({ ...screen, selected: clampIndex(screen.selected, 1, sessions.length) })
+      return
+    }
+
+    const selectedSession = sessions[screen.selected]
+    if (isEnterKey(key.name) && selectedSession) {
+      runResume(selectedSession.name)
+    }
+    return
+  }
+
+  if (screen.kind === "source") {
+    if (isUp(key.name)) {
+      setScreen({ ...screen, selected: clampIndex(screen.selected, -1, SOURCE_OPTIONS.length) })
+      return
+    }
+
+    if (isDown(key.name)) {
+      setScreen({ ...screen, selected: clampIndex(screen.selected, 1, SOURCE_OPTIONS.length) })
+      return
+    }
+
+    if (isEnterKey(key.name)) {
+      setScreen({
+        kind: "form",
+        agent: screen.agent,
+        source: SOURCE_OPTIONS[screen.selected] ?? "new_dir",
+        input: "",
+        error: undefined,
+      })
+    }
+    return
+  }
+
+  if (screen.kind === "form") {
+    if (isBackspace(key.name)) {
+      setScreen((current) => {
+        return updateFormScreen(current, (form) => ({ ...form, input: form.input.slice(0, -1), error: undefined }))
+      })
+      return
+    }
+
+    if (isEnterKey(key.name)) {
+      runCreate(screen.agent, screen.source, screen.input)
+      return
+    }
+
+    if (isPrintable(key)) {
+      setScreen((current) => {
+        return updateFormScreen(current, (form) => ({ ...form, input: `${form.input}${key.sequence}`, error: undefined }))
+      })
+    }
+  }
 }
 
 export function App({ controller, workspaceRoot, onExit }: AppProps) {
@@ -184,140 +354,19 @@ export function App({ controller, workspaceRoot, onExit }: AppProps) {
   }
 
   useKeyboard((key) => {
-    if (key.ctrl && key.name === "c") {
-      onExit({ reason: "quit", code: 130 })
-      return
-    }
-
-    if (key.name === "q") {
-      onExit({ reason: "quit", code: 0 })
-      return
-    }
-
-    if (screen.kind === "busy") {
-      return
-    }
-
-    if (key.name === "escape") {
-      switch (screen.kind) {
-        case "home":
-          return
-        case "resume":
-          setScreen({ kind: "home", selected: 0, status: screen.status })
-          return
-        case "source":
-          setScreen({ kind: "home", selected: 0, status: screen.status })
-          return
-        case "form":
-          setScreen({ kind: "source", agent: screen.agent, selected: 0, status: undefined })
-      }
-      return
-    }
-
-    if (screen.kind === "home") {
-      if (isUp(key.name)) {
-        setScreen({ ...screen, selected: clampIndex(screen.selected, -1, HOME_ACTIONS.length) })
-        return
-      }
-
-      if (isDown(key.name)) {
-        setScreen({ ...screen, selected: clampIndex(screen.selected, 1, HOME_ACTIONS.length) })
-        return
-      }
-
-      if (!isEnterKey(key.name)) {
-        return
-      }
-
-      switch (screen.selected) {
-        case 0:
-          if (sessions.length === 0) {
-            setScreen({ ...screen, status: "No agent-man sessions found." })
-            return
-          }
-
-          setScreen({ kind: "resume", selected: 0, status: undefined })
-          return
-        case 1:
-          setScreen({ kind: "source", agent: "opencode", selected: 0, status: undefined })
-          return
-        case 2:
-          setScreen({ kind: "source", agent: "codex", selected: 0, status: undefined })
-          return
-        case 3:
-          onExit({ reason: "direct_shell", code: 40 })
-          return
-        default:
-          return
-      }
-    }
-
-    if (screen.kind === "resume") {
-      if (isUp(key.name)) {
-        setScreen({ ...screen, selected: clampIndex(screen.selected, -1, sessions.length) })
-        return
-      }
-
-      if (isDown(key.name)) {
-        setScreen({ ...screen, selected: clampIndex(screen.selected, 1, sessions.length) })
-        return
-      }
-
-      const selectedSession = sessions[screen.selected]
-      if (isEnterKey(key.name) && selectedSession) {
-        void runResume(selectedSession.name)
-      }
-      return
-    }
-
-    if (screen.kind === "source") {
-      if (isUp(key.name)) {
-        setScreen({ ...screen, selected: clampIndex(screen.selected, -1, SOURCE_OPTIONS.length) })
-        return
-      }
-
-      if (isDown(key.name)) {
-        setScreen({ ...screen, selected: clampIndex(screen.selected, 1, SOURCE_OPTIONS.length) })
-        return
-      }
-
-      if (isEnterKey(key.name)) {
-        setScreen({
-          kind: "form",
-          agent: screen.agent,
-          source: SOURCE_OPTIONS[screen.selected] ?? "new_dir",
-          input: "",
-          error: undefined,
-        })
-      }
-      return
-    }
-
-    if (screen.kind === "form") {
-      if (isBackspace(key.name)) {
-        setScreen((current) => {
-          if (current.kind !== "form") {
-            return current
-          }
-          return { ...current, input: current.input.slice(0, -1), error: undefined }
-        })
-        return
-      }
-
-      if (isEnterKey(key.name)) {
-        void runCreate(screen.agent, screen.source, screen.input)
-        return
-      }
-
-      if (isPrintable(key)) {
-        setScreen((current) => {
-          if (current.kind !== "form") {
-            return current
-          }
-          return { ...current, input: `${current.input}${key.sequence}`, error: undefined }
-        })
-      }
-    }
+    handleKeyboardInput({
+      key,
+      screen,
+      sessions,
+      onExit,
+      setScreen,
+      runResume: (sessionName) => {
+        void runResume(sessionName)
+      },
+      runCreate: (agent, source, input) => {
+        void runCreate(agent, source, input)
+      },
+    })
   })
 
   return (

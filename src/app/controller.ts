@@ -1,13 +1,34 @@
 import type { AppController, AppExit, CreateSessionInput, SessionMeta } from "./types"
 import { agentCommand } from "../services/agent"
-import { DependencyService } from "../services/deps"
-import { TmuxService, buildUniqueSessionName } from "../services/tmux"
-import { WorkspaceService, sessionSlugFromPath } from "../services/workspace"
+import { buildUniqueSessionName } from "../services/tmux"
+import { sessionSlugFromPath } from "../services/workspace"
+import type { AgentKind } from "./types"
+
+interface DependencyPort {
+  assertRequired: (agent: AgentKind) => Promise<void>
+}
+
+interface WorkspacePort {
+  prepareNewDirectory: (workspaceRoot: string, dirName: string) => Promise<string>
+  resolveExistingDirectory: (dirPath: string) => Promise<string>
+  cloneRepo: (repoInput: string, workspaceRoot: string) => Promise<{ repo: string; targetDir: string }>
+}
+
+interface TmuxPort {
+  listSessions: () => Promise<SessionMeta[]>
+  hasSession: (name: string) => Promise<boolean>
+  createSession: (name: string, cwd: string) => Promise<void>
+  setMetadata: (
+    name: string,
+    metadata: { agent: AgentKind; workspace: string; repo?: string; createdAt: string },
+  ) => Promise<void>
+  sendCommand: (name: string, command: string[]) => Promise<void>
+}
 
 export interface AppServices {
-  deps: DependencyService
-  tmux: TmuxService
-  workspace: WorkspaceService
+  deps: DependencyPort
+  tmux: TmuxPort
+  workspace: WorkspacePort
 }
 
 export class AgentManController implements AppController {

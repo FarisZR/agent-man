@@ -17,6 +17,12 @@ interface RenderResult {
   captureCharFrame: () => string
   pressEnter: () => Promise<void>
   pressDown: () => Promise<void>
+  pressUp: () => Promise<void>
+  pressEscape: () => Promise<void>
+  pressQ: () => Promise<void>
+  pressCtrlC: () => Promise<void>
+  pressBackspace: () => Promise<void>
+  pressKey: (key: string) => Promise<void>
   typeText: (text: string) => Promise<void>
   settle: () => Promise<void>
 }
@@ -29,6 +35,8 @@ async function renderApp(options: {
   createError?: string
   resumeResult?: AppExit
   resumeError?: string
+  loadError?: string
+  createPending?: boolean
 }): Promise<RenderResult> {
   setActEnvironment(true)
 
@@ -38,6 +46,9 @@ async function renderApp(options: {
 
   const controller: AppController = {
     async loadSessions() {
+      if (options.loadError) {
+        throw new Error(options.loadError)
+      }
       return sessions
     },
     async resumeSession(sessionName: string) {
@@ -48,6 +59,9 @@ async function renderApp(options: {
     },
     async createSession(input: CreateSessionInput) {
       createInputs.push(input)
+      if (options.createPending) {
+        return await new Promise<AppExit>(() => {})
+      }
       if (options.createError) {
         throw new Error(options.createError)
       }
@@ -97,7 +111,7 @@ async function renderApp(options: {
     })
   }
 
-  await flush(3)
+  await flush(6)
 
   return {
     renderer: setup.renderer,
@@ -107,12 +121,19 @@ async function renderApp(options: {
     captureCharFrame: setup.captureCharFrame,
     pressEnter: async () => runInput(() => setup.mockInput.pressEnter()),
     pressDown: async () => runInput(() => setup.mockInput.pressArrow("down")),
+    pressUp: async () => runInput(() => setup.mockInput.pressArrow("up")),
+    pressEscape: async () => runInput(() => setup.mockInput.pressEscape()),
+    pressQ: async () => runInput(() => setup.mockInput.pressKey("q")),
+    pressCtrlC: async () => runInput(() => setup.mockInput.pressCtrlC()),
+    pressBackspace: async () => runInput(() => setup.mockInput.pressBackspace()),
+    pressKey: async (key: string) => runInput(() => setup.mockInput.pressKey(key)),
     typeText: async (text: string) => runInput(() => setup.mockInput.typeText(text)),
     settle: async () => flush(4),
   }
 }
 
 afterEach(() => {
+  setActEnvironment(true)
   while (activeRenderers.length > 0) {
     const renderer = activeRenderers.pop()
     act(() => {
@@ -123,15 +144,79 @@ afterEach(() => {
 })
 
 describe("App e2e flows", () => {
-  it("resumes an existing session", async () => {
+  it("opens resume list for existing sessions", async () => {
     const app = await renderApp({
       sessions: [{ name: "agent-man-a", attached: false, activityEpoch: 100, agent: "opencode" }],
     })
 
     await app.pressEnter()
-    await app.pressEnter()
+    expect(app.captureCharFrame()).toContain("Resume session")
+  })
 
-    expect(app.exits).toEqual([{ reason: "attach", code: 0, sessionName: "agent-man-a" }])
+  it("shows home error when loading sessions fails", async () => {
+    const app = await renderApp({ loadError: "load failed" })
+    expect(app.captureCharFrame()).toContain("Failed to load sessions: load failed")
+  })
+
+  it("exits on q and ctrl+c shortcuts", async () => {
+    const appQ = await renderApp({ sessions: [] })
+    await appQ.pressQ()
+    expect(appQ.exits[0]).toEqual({ reason: "quit", code: 0 })
+
+    const appCtrlC = await renderApp({ sessions: [] })
+    await appCtrlC.pressCtrlC()
+    expect(appCtrlC.exits[0]).toEqual({ reason: "quit", code: 130 })
+  })
+
+  it("handles empty resume list and source navigation", async () => {
+    const app = await renderApp({ sessions: [] })
+
+    await app.pressEnter()
+    await app.settle()
+    expect(app.captureCharFrame()).toContain("No agent-man sessions found.")
+
+    await app.pressDown()
+    await app.pressEnter()
+    await app.settle()
+    expect(app.captureCharFrame()).toContain("New opencode session")
+
+    await app.pressDown()
+    await app.pressEnter()
+    await app.pressEnter()
+    expect(app.captureCharFrame()).toContain("Existing directory path:")
+  })
+
+  it("supports up-navigation in home and resume lists", async () => {
+    const app = await renderApp({
+      sessions: [
+        { name: "agent-man-a", attached: false, activityEpoch: 100, agent: "opencode" },
+        { name: "agent-man-b", attached: false, activityEpoch: 90, agent: "codex" },
+      ],
+    })
+
+    await app.pressUp()
+    await app.pressEnter()
+    await app.settle()
+    expect(app.captureCharFrame()).toContain("Resume session")
+
+    await app.pressDown()
+    await app.pressUp()
+    await app.pressEnter()
+    expect(app.exits[0]).toEqual({ reason: "attach", code: 0, sessionName: "agent-man-a" })
+  })
+
+  it("supports up-navigation in source list", async () => {
+    const app = await renderApp({ sessions: [] })
+
+    await app.pressDown()
+    await app.pressDown()
+    await app.pressEnter()
+    await app.settle()
+    expect(app.captureCharFrame()).toContain("New codex session")
+    await app.pressUp()
+    await app.pressEnter()
+    await app.settle()
+    expect(app.captureCharFrame()).toContain("Directory name:")
   })
 
   it("creates an OpenCode session from new_dir", async () => {
@@ -204,6 +289,56 @@ describe("App e2e flows", () => {
 
     expect(app.exits).toEqual([])
     expect(app.captureCharFrame()).toContain("Missing required binaries: codex")
+  })
+
+  it("shows resume errors from controller failures", async () => {
+    const app = await renderApp({
+      sessions: [{ name: "agent-man-a", attached: false, activityEpoch: 100, agent: "opencode" }],
+      resumeError: "resume failed",
+    })
+
+    await app.pressEnter()
+    await app.pressEnter()
+    await app.settle()
+
+    expect(app.exits).toEqual([])
+    expect(app.captureCharFrame()).toContain("resume failed")
+  })
+
+  it("requires non-empty form input and supports backspace editing", async () => {
+    const app = await renderApp({ sessions: [] })
+
+    await app.pressDown()
+    await app.pressEnter()
+    await app.pressEnter()
+    await app.settle()
+    await app.pressEnter()
+    await app.settle()
+    expect(app.captureCharFrame()).toContain("Input is required.")
+
+    await app.typeText("abc")
+    await app.pressBackspace()
+    await app.pressEnter()
+    expect(app.createInputs[0]?.newDirName).toBe("ab")
+  })
+
+  it("ignores non-enter keys on home and blocks input while busy", async () => {
+    const app = await renderApp({ sessions: [] })
+    await app.pressKey("x")
+    expect(app.captureCharFrame()).toContain("Main actions")
+
+    const busyApp = await renderApp({ sessions: [], createPending: true })
+    await busyApp.pressDown()
+    await busyApp.pressEnter()
+    await busyApp.pressEnter()
+    await busyApp.typeText("proj-busy")
+    await busyApp.pressEnter()
+    await busyApp.settle()
+    expect(busyApp.captureCharFrame()).toContain("Creating session...")
+
+    await busyApp.pressDown()
+    await busyApp.settle()
+    expect(busyApp.captureCharFrame()).toContain("Creating session...")
   })
 
   it("shows failure message when clone fails", async () => {

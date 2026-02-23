@@ -13,6 +13,8 @@ export interface Runner {
 }
 
 export class SystemRunner implements Runner {
+  constructor() {}
+
   async run(cmd: string, args: string[] = [], options: RunOptions = {}): Promise<CommandResult> {
     const proc = Bun.spawn([cmd, ...args], {
       cwd: options.cwd,

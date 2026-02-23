@@ -71,9 +71,9 @@ function createController() {
   const tmux = new FakeTmux()
 
   const controller = new AgentManController({
-    deps: deps as never,
-    workspace: workspace as never,
-    tmux: tmux as never,
+    deps,
+    workspace,
+    tmux,
   })
 
   return { controller, deps, workspace, tmux }
@@ -112,9 +112,13 @@ describe("AgentManController", () => {
     expect(deps.checks).toEqual(["opencode"])
     expect(workspace.newDirCalls).toEqual([{ root: "/tmp/agent-sessions", dirName: "proj-a" }])
     expect(tmux.created).toHaveLength(1)
-    expect(tmux.sent[0]).toEqual({ name: tmux.created[0].name, command: ["opencode"] })
+    const created = tmux.created[0]
+    if (!created) {
+      throw new Error("expected created session")
+    }
+    expect(tmux.sent[0]).toEqual({ name: created.name, command: ["opencode"] })
     expect(result.reason).toBe("attach")
-    expect(result.sessionName).toBe(tmux.created[0].name)
+    expect(result.sessionName).toBe(created.name)
   })
 
   it("creates codex sessions from existing directory source", async () => {
@@ -129,8 +133,12 @@ describe("AgentManController", () => {
 
     expect(deps.checks).toEqual(["codex"])
     expect(workspace.existingCalls).toEqual(["/work/repo"])
+    const created = tmux.created[0]
+    if (!created) {
+      throw new Error("expected created session")
+    }
     expect(tmux.sent[0]).toEqual({
-      name: tmux.created[0].name,
+      name: created.name,
       command: ["codex", "--dangerously-bypass-approvals-and-sandbox", "--search"],
     })
     expect(result.reason).toBe("attach")
@@ -148,5 +156,34 @@ describe("AgentManController", () => {
 
     expect(workspace.cloneCalls).toEqual([{ repoInput: "owner/repo", workspaceRoot: "/tmp/agent-sessions" }])
     expect(tmux.metadata[0]?.metadata.repo).toBe("owner/repo")
+  })
+
+  it("rejects unsupported source values", async () => {
+    const { controller } = createController()
+
+    await expect(
+      controller.createSession({
+        agent: "codex",
+        source: "invalid_source" as never,
+        workspaceRoot: "/tmp/agent-sessions",
+      }),
+    ).rejects.toThrow("Unsupported source")
+  })
+
+  it("creates unique session names when collisions exist", async () => {
+    const { controller, tmux } = createController()
+    tmux.sessions = [
+      { name: "agent-man-opencode-proj-a", attached: false, activityEpoch: 100 },
+      { name: "agent-man-opencode-proj-a-2", attached: false, activityEpoch: 90 },
+    ]
+
+    const result = await controller.createSession({
+      agent: "opencode",
+      source: "new_dir",
+      workspaceRoot: "/tmp/agent-sessions",
+      newDirName: "proj-a",
+    })
+
+    expect(result.sessionName).toBe("agent-man-opencode-proj-a-3")
   })
 })

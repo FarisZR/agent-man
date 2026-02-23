@@ -81,6 +81,14 @@ describe("TmuxService", () => {
     await expect(service.listSessions()).resolves.toEqual([])
   })
 
+  it("throws for list failures unrelated to missing server", async () => {
+    const runner = new QueueRunner()
+    runner.enqueue({ stdout: "", stderr: "permission denied", exitCode: 1 })
+
+    const service = new TmuxService(runner)
+    await expect(service.listSessions()).rejects.toThrow("permission denied")
+  })
+
   it("lists, creates, metadata-writes, and sends command", async () => {
     const runner = new QueueRunner()
     runner.enqueue({ stdout: "agent-man-a|0|10|opencode|/tmp/a||\n", stderr: "", exitCode: 0 })
@@ -121,5 +129,20 @@ describe("TmuxService", () => {
     runner.enqueue({ stdout: "", stderr: "permission denied", exitCode: 1 })
     const service = new TmuxService(runner)
     await expect(service.createSession("agent-man-x", "/tmp/x")).rejects.toThrow("permission denied")
+  })
+
+  it("checks hasSession and attaches sessions", async () => {
+    const runner = new QueueRunner()
+    runner.enqueue({ stdout: "agent-man-a|0|10|opencode|/tmp/a||\n", stderr: "", exitCode: 0 })
+    runner.enqueue({ stdout: "", stderr: "", exitCode: 0 })
+
+    const service = new TmuxService(runner)
+    await expect(service.hasSession("agent-man-a")).resolves.toBe(true)
+    await expect(service.attachSession("agent-man-a")).resolves.toBeUndefined()
+
+    expect(runner.calls[1]).toEqual({
+      cmd: "tmux",
+      args: ["attach-session", "-t", "agent-man-a"],
+    })
   })
 })

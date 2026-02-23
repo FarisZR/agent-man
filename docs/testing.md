@@ -39,3 +39,19 @@ Automated flows:
 bun test
 bun test --coverage
 ```
+
+## Coverage gates
+
+`bunfig.toml` enforces 100% for Bun-native thresholds:
+
+- lines
+- functions
+- statements
+
+Branch coverage is enforced by:
+
+```bash
+bun run scripts/check-lcov-thresholds.ts coverage/lcov.info
+```
+
+CI (`.github/workflows/ci.yml`) runs `bun run ci:test`, which executes coverage and fails if any metric is below 100%.
