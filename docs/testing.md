@@ -24,6 +24,15 @@ Current integration coverage targets:
 E2E tests use OpenTUI test renderer and mock keyboard input.
 Flow coverage is implemented in `src/app/App.e2e.test.tsx`.
 
+Automated flows:
+
+- resume existing session
+- create OpenCode session from `new_dir`
+- create Codex session from `gh_clone`
+- direct shell exit path
+- missing dependency error handling
+- clone failure error handling
+
 ## Running tests
 
 ```bash

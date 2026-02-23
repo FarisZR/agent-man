@@ -295,7 +295,12 @@ export function App({ controller, workspaceRoot, onExit }: AppProps) {
 
     if (screen.kind === "form") {
       if (isBackspace(key.name)) {
-        setScreen({ ...screen, input: screen.input.slice(0, -1), error: undefined })
+        setScreen((current) => {
+          if (current.kind !== "form") {
+            return current
+          }
+          return { ...current, input: current.input.slice(0, -1), error: undefined }
+        })
         return
       }
 
@@ -305,7 +310,12 @@ export function App({ controller, workspaceRoot, onExit }: AppProps) {
       }
 
       if (isPrintable(key)) {
-        setScreen({ ...screen, input: `${screen.input}${key.sequence}`, error: undefined })
+        setScreen((current) => {
+          if (current.kind !== "form") {
+            return current
+          }
+          return { ...current, input: `${current.input}${key.sequence}`, error: undefined }
+        })
       }
     }
   })
