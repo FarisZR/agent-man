@@ -1,0 +1,141 @@
+#!/usr/bin/env bash
+# setup-linux-alias
+# Run on Linux to create an agent-man alias that SSHs to a server.
+# Usage: curl -sL https://raw.githubusercontent.com/FarisZR/agent-man/main/bin/setup-linux-alias | bash
+
+set -euo pipefail
+
+SSH_CONFIG="${HOME}/.ssh/config"
+SSH_DIR="${HOME}/.ssh"
+ALIAS_NAME="agent-man"
+
+# ── detect shell and config file ───────────────────────────────────────────────
+SHELL_CONFIG=""
+case "${SHELL:-}" in
+  */bash)
+    SHELL_CONFIG="${HOME}/.bashrc"
+    ;;
+  */zsh)
+    SHELL_CONFIG="${HOME}/.zshrc"
+    ;;
+  */fish)
+    SHELL_CONFIG="${HOME}/.config/fish/config.fish"
+    ;;
+  *)
+    # Try common fallbacks
+    if [[ -f "${HOME}/.zshrc" ]]; then
+      SHELL_CONFIG="${HOME}/.zshrc"
+    elif [[ -f "${HOME}/.bashrc" ]]; then
+      SHELL_CONFIG="${HOME}/.bashrc"
+    elif [[ -f "${HOME}/.bash_profile" ]]; then
+      SHELL_CONFIG="${HOME}/.bash_profile"
+    else
+      SHELL_CONFIG="${HOME}/.bashrc"
+    fi
+    ;;
+esac
+
+# ── colours ──────────────────────────────────────────────────────────────────
+bold=$(tput bold 2>/dev/null || true)
+reset=$(tput sgr0 2>/dev/null || true)
+green=$(tput setaf 2 2>/dev/null || true)
+yellow=$(tput setaf 3 2>/dev/null || true)
+cyan=$(tput setaf 6 2>/dev/null || true)
+
+info()    { printf "%s==>%s %s\n" "${cyan}${bold}" "${reset}" "$*"; }
+success() { printf "%s✓%s %s\n" "${green}${bold}" "${reset}" "$*"; }
+warn()    { printf "%s!%s %s\n" "${yellow}${bold}" "${reset}" "$*"; }
+
+# ── prompt helper ─────────────────────────────────────────────────────────────
+ask() {
+  local prompt="$1"
+  local default="${2:-}"
+  local answer
+  if [[ -n "$default" ]]; then
+    printf "%s%s%s [%s]: " "${bold}" "$prompt" "${reset}" "$default"
+  else
+    printf "%s%s%s: " "${bold}" "$prompt" "${reset}"
+  fi
+  read -r answer
+  printf '%s' "${answer:-$default}"
+}
+
+# ── banner ────────────────────────────────────────────────────────────────────
+echo ""
+printf "%s agent-man Linux alias setup %s\n" "${bold}${cyan}" "${reset}"
+echo "────────────────────────────────────────"
+echo ""
+
+# ── gather SSH parameters ─────────────────────────────────────────────────────
+info "SSH connection details"
+echo ""
+
+SSH_HOST=$(ask "Remote hostname or IP" "")
+while [[ -z "$SSH_HOST" ]]; do
+  warn "Hostname cannot be empty."
+  SSH_HOST=$(ask "Remote hostname or IP" "")
+done
+
+SSH_USER=$(ask "Remote username" "$(whoami 2>/dev/null || echo user)")
+SSH_PORT=$(ask "SSH port" "22")
+SSH_KEY=$(ask "Path to SSH private key" "${HOME}/.ssh/id_ed25519")
+
+echo ""
+
+# ── create SSH dir and config ─────────────────────────────────────────────────
+info "Configuring SSH..."
+mkdir -p "$SSH_DIR"
+chmod 700 "$SSH_DIR"
+
+if [[ -f "$SSH_CONFIG" ]] && grep -q "^Host agentbox" "$SSH_CONFIG" 2>/dev/null; then
+  warn "~/.ssh/config already contains 'Host agentbox' — skipping SSH config update."
+  warn "Edit it manually if the details are wrong: nano ${SSH_CONFIG}"
+else
+  cat >> "$SSH_CONFIG" <<EOF
+
+Host agentbox
+  HostName ${SSH_HOST}
+  User ${SSH_USER}
+  Port ${SSH_PORT}
+  IdentityFile ${SSH_KEY}
+  ServerAliveInterval 30
+  ServerAliveCountMax 3
+EOF
+  chmod 600 "$SSH_CONFIG"
+  success "SSH config written (Host agentbox → ${SSH_USER}@${SSH_HOST}:${SSH_PORT})"
+fi
+
+# ── add alias to shell config ─────────────────────────────────────────────────
+info "Adding alias to ${SHELL_CONFIG}..."
+
+ALIAS_MARKER="# agent-man alias (added by setup-linux-alias)"
+
+if grep -q "$ALIAS_MARKER" "$SHELL_CONFIG" 2>/dev/null; then
+  warn "Alias already exists in ${SHELL_CONFIG} — skipping."
+else
+  cat >> "$SHELL_CONFIG" <<EOF
+
+${ALIAS_MARKER}
+${ALIAS_NAME}() {
+  # bash -l loads the remote login profile so tools like bun are on PATH
+  ssh -t agentbox 'bash -lc "cd ~/agent-man && ./bin/agent-man-entry"'
+}
+EOF
+  success "Alias added to ${SHELL_CONFIG}"
+fi
+
+# ── done ──────────────────────────────────────────────────────────────────────
+echo ""
+printf "%s Setup complete! %s\n" "${bold}${green}" "${reset}"
+echo "────────────────────────────────────────"
+echo ""
+echo "Reload your shell to start using the alias:"
+echo ""
+echo "  source ${SHELL_CONFIG}"
+echo ""
+echo "Then run:"
+echo ""
+echo "  ${bold}${ALIAS_NAME}${reset}"
+echo ""
+echo "This will SSH into ${bold}agentbox${reset} and launch agent-man."
+echo ""
