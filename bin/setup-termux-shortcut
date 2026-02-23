@@ -7,7 +7,7 @@ set -euo pipefail
 
 ICON_URL="https://raw.githubusercontent.com/FarisZR/agent-man/main/assets/agent-man-icon.png"
 SHORTCUT_NAME="agent-man"
-SHORTCUTS_DIR="${HOME}/.shortcuts"
+SHORTCUTS_DIR="${HOME}/.termux/widget/dynamic_shortcuts"
 ICONS_DIR="${HOME}/.shortcuts/icons"
 SSH_CONFIG="${HOME}/.ssh/config"
 SSH_DIR="${HOME}/.ssh"
@@ -83,7 +83,7 @@ EOF
 fi
 
 # ── create shortcut dirs ──────────────────────────────────────────────────────
-info "Creating ~/.shortcuts directories..."
+info "Creating shortcut directories..."
 mkdir -p "$SHORTCUTS_DIR"
 chmod 700 "$SHORTCUTS_DIR"
 mkdir -p "$ICONS_DIR"
@@ -97,7 +97,8 @@ SCRIPT_PATH="${SHORTCUTS_DIR}/${SHORTCUT_NAME}"
 cat > "$SCRIPT_PATH" <<'SCRIPT'
 #!/data/data/com.termux/files/usr/bin/bash
 set -euo pipefail
-ssh -t agentbox 'cd ~/agent-man && ./bin/agent-man-entry'
+# bash -l loads ~/.profile so tools like bun are on PATH
+ssh -t agentbox 'bash -lc "cd ~/agent-man && ./bin/agent-man-entry"'
 SCRIPT
 
 chmod +x "$SCRIPT_PATH"

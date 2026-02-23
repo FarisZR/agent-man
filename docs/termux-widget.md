@@ -18,8 +18,8 @@ The script will ask for:
 It then does everything automatically:
 
 1. Writes an SSH host alias `agentbox` to `~/.ssh/config`
-2. Creates `~/.shortcuts/` and `~/.shortcuts/icons/` with correct permissions
-3. Writes the `agent-man` shortcut script
+2. Creates `~/.termux/widget/dynamic_shortcuts/` and `~/.shortcuts/icons/` with correct permissions
+3. Writes the `agent-man` shortcut script (uses `bash -l` so remote PATH is fully loaded)
 4. Downloads the golden-A icon
 
 ## After setup
@@ -45,7 +45,8 @@ On remote host:
 
 ## Troubleshooting
 
-- **Shortcut not appearing** — tap the refresh button inside Termux:Widget after running the setup script.
+- **Shortcut not appearing** — tap **CREATE SHORTCUTS** again in Termux:Widget after running the setup script.
 - **SSH fails** — run `ssh agentbox` manually in Termux and fix auth or host config (`nano ~/.ssh/config`).
-- **Script fails to start** — ensure the shebang in `~/.shortcuts/agent-man` is `#!/data/data/com.termux/files/usr/bin/bash`.
+- **Script fails to start** — ensure the shebang in `~/.termux/widget/dynamic_shortcuts/agent-man` is `#!/data/data/com.termux/files/usr/bin/bash`.
+- **`bun: command not found`** — the shortcut script uses `bash -l` to load the login profile; ensure bun's PATH line is in `~/.profile` or `~/.bashrc` on the remote host.
 - **Dependency errors** — install missing binaries on the remote host.
