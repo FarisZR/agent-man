@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
-import { useKeyboard } from "@opentui/react"
+import { useKeyboard, useRenderer } from "@opentui/react"
 import type { AppController, AppExit, AgentKind, CreateSessionInput, SessionMeta, SourceKind } from "./types"
 
 interface AppProps {
@@ -17,12 +17,13 @@ export type ScreenState =
 
 export type FormScreenState = Extract<ScreenState, { kind: "form" }>
 
-export const HOME_ACTIONS = [
-  "Resume Session",
-  "New OpenCode Session",
-  "New Codex Session",
-  "Direct Shell (no tmux)",
-] as const
+export const MAX_HOME_SESSION_OPTIONS = 3
+
+export type HomeOption =
+  | { kind: "resume_session"; sessionName: string; label: string }
+  | { kind: "resume_menu"; label: string }
+  | { kind: "new_session"; agent: AgentKind; label: string }
+  | { kind: "direct_shell"; label: string }
 
 export const SOURCE_OPTIONS: SourceKind[] = ["new_dir", "existing_dir", "gh_clone"]
 
@@ -37,6 +38,7 @@ interface HandleKeyboardInputParams {
   key: KeyboardEventLike
   screen: ScreenState
   sessions: SessionMeta[]
+  homeOptions: HomeOption[]
   onExit: (exit: AppExit) => void
   setScreen: (next: ScreenState | ((current: ScreenState) => ScreenState)) => void
   runResume: (sessionName: string) => void
@@ -153,10 +155,38 @@ export function screenOnEscape(screen: ScreenState): ScreenState {
   }
 }
 
+export function buildHomeOptions(sessions: SessionMeta[], maxSessionOptions: number = MAX_HOME_SESSION_OPTIONS): HomeOption[] {
+  const sessionOptions = sessions.slice(0, maxSessionOptions).map((session) => {
+    const agent = session.agent ?? "unknown"
+    return {
+      kind: "resume_session" as const,
+      sessionName: session.name,
+      label: `Resume: ${session.name} (${agent})`,
+    }
+  })
+
+  const options: HomeOption[] = [
+    ...sessionOptions,
+    { kind: "new_session", agent: "opencode", label: "New OpenCode Session" },
+    { kind: "new_session", agent: "codex", label: "New Codex Session" },
+    { kind: "direct_shell", label: "Direct Shell (no tmux)" },
+  ]
+
+  if (sessions.length > maxSessionOptions) {
+    options.splice(sessionOptions.length, 0, {
+      kind: "resume_menu",
+      label: `More sessions (${sessions.length - maxSessionOptions})`,
+    })
+  }
+
+  return options
+}
+
 export function handleKeyboardInput({
   key,
   screen,
   sessions,
+  homeOptions,
   onExit,
   setScreen,
   runResume,
@@ -183,12 +213,12 @@ export function handleKeyboardInput({
 
   if (screen.kind === "home") {
     if (isUp(key.name)) {
-      setScreen({ ...screen, selected: clampIndex(screen.selected, -1, HOME_ACTIONS.length) })
+      setScreen({ ...screen, selected: clampIndex(screen.selected, -1, homeOptions.length) })
       return
     }
 
     if (isDown(key.name)) {
-      setScreen({ ...screen, selected: clampIndex(screen.selected, 1, HOME_ACTIONS.length) })
+      setScreen({ ...screen, selected: clampIndex(screen.selected, 1, homeOptions.length) })
       return
     }
 
@@ -196,22 +226,22 @@ export function handleKeyboardInput({
       return
     }
 
-    switch (screen.selected) {
-      case 0:
-        if (sessions.length === 0) {
-          setScreen({ ...screen, status: "No agent-man sessions found." })
-          return
-        }
+    const selectedOption = homeOptions[screen.selected]
+    if (!selectedOption) {
+      return
+    }
 
+    switch (selectedOption.kind) {
+      case "resume_session":
+        runResume(selectedOption.sessionName)
+        return
+      case "resume_menu":
         setScreen({ kind: "resume", selected: 0, status: undefined })
         return
-      case 1:
-        setScreen({ kind: "source", agent: "opencode", selected: 0, status: undefined })
+      case "new_session":
+        setScreen({ kind: "source", agent: selectedOption.agent, selected: 0, status: undefined })
         return
-      case 2:
-        setScreen({ kind: "source", agent: "codex", selected: 0, status: undefined })
-        return
-      case 3:
+      case "direct_shell":
         onExit({ reason: "direct_shell", code: 40 })
         return
     }
@@ -280,6 +310,7 @@ export function handleKeyboardInput({
 }
 
 export function App({ controller, workspaceRoot, onExit }: AppProps) {
+  const renderer = useRenderer()
   const [sessions, setSessions] = useState<SessionMeta[]>([])
   const [screen, setScreen] = useState<ScreenState>({ kind: "home", selected: 0, status: "Loading sessions..." })
 
@@ -299,13 +330,14 @@ export function App({ controller, workspaceRoot, onExit }: AppProps) {
   }, [])
 
   const homeLines = useMemo(() => {
-    return HOME_ACTIONS.map((action, index) => {
+    const options = buildHomeOptions(sessions)
+    return options.map((option, index) => {
       if (screen.kind === "home" && index === screen.selected) {
-        return `> ${action}`
+        return `> ${option.label}`
       }
-      return `  ${action}`
+      return `  ${option.label}`
     })
-  }, [screen])
+  }, [screen, sessions])
 
   const resumeLines = useMemo(() => {
     return sessions.map((session, index) => {
@@ -330,7 +362,7 @@ export function App({ controller, workspaceRoot, onExit }: AppProps) {
       onExit(exit)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      setScreen({ kind: "resume", selected: 0, status: message })
+      setScreen({ kind: "home", selected: 0, status: message })
     }
   }
 
@@ -353,11 +385,31 @@ export function App({ controller, workspaceRoot, onExit }: AppProps) {
     }
   }
 
+  useEffect(() => {
+    const onPaste = (event: { text?: string }) => {
+      const pastedText = event.text ?? ""
+      if (!pastedText) {
+        return
+      }
+
+      setScreen((current) => {
+        return updateFormScreen(current, (form) => ({ ...form, input: `${form.input}${pastedText}`, error: undefined }))
+      })
+    }
+
+    renderer.keyInput.on("paste", onPaste)
+    return () => {
+      renderer.keyInput.off("paste", onPaste)
+    }
+  }, [renderer])
+
   useKeyboard((key) => {
+    const homeOptions = buildHomeOptions(sessions)
     handleKeyboardInput({
       key,
       screen,
       sessions,
+      homeOptions,
       onExit,
       setScreen,
       runResume: (sessionName) => {
@@ -377,7 +429,7 @@ export function App({ controller, workspaceRoot, onExit }: AppProps) {
 
       {screen.kind === "home" && (
         <box flexDirection="column">
-          <text>Main actions</text>
+          <text>Sessions and actions</text>
           {homeLines.map((line) => (
             <text key={line}>{line}</text>
           ))}

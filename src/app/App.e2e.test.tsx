@@ -18,12 +18,12 @@ interface RenderResult {
   pressEnter: () => Promise<void>
   pressDown: () => Promise<void>
   pressUp: () => Promise<void>
-  pressEscape: () => Promise<void>
   pressQ: () => Promise<void>
   pressCtrlC: () => Promise<void>
   pressBackspace: () => Promise<void>
   pressKey: (key: string) => Promise<void>
   typeText: (text: string) => Promise<void>
+  pasteText: (text: string) => Promise<void>
   settle: () => Promise<void>
 }
 
@@ -72,7 +72,7 @@ async function renderApp(options: {
   let root: Root | null = null
 
   const setup = await createTestRenderer({
-    width: 90,
+    width: 100,
     height: 30,
     onDestroy() {
       if (root) {
@@ -122,12 +122,16 @@ async function renderApp(options: {
     pressEnter: async () => runInput(() => setup.mockInput.pressEnter()),
     pressDown: async () => runInput(() => setup.mockInput.pressArrow("down")),
     pressUp: async () => runInput(() => setup.mockInput.pressArrow("up")),
-    pressEscape: async () => runInput(() => setup.mockInput.pressEscape()),
     pressQ: async () => runInput(() => setup.mockInput.pressKey("q")),
     pressCtrlC: async () => runInput(() => setup.mockInput.pressCtrlC()),
     pressBackspace: async () => runInput(() => setup.mockInput.pressBackspace()),
     pressKey: async (key: string) => runInput(() => setup.mockInput.pressKey(key)),
     typeText: async (text: string) => runInput(() => setup.mockInput.typeText(text)),
+    pasteText: async (text: string) =>
+      runInput(() => {
+        const emitter = setup.renderer.keyInput as unknown as { emit: (name: string, payload: unknown) => void }
+        emitter.emit("paste", { text })
+      }),
     settle: async () => flush(4),
   }
 }
@@ -144,13 +148,13 @@ afterEach(() => {
 })
 
 describe("App e2e flows", () => {
-  it("opens resume list for existing sessions", async () => {
+  it("resumes first existing session from home menu", async () => {
     const app = await renderApp({
       sessions: [{ name: "agent-man-a", attached: false, activityEpoch: 100, agent: "opencode" }],
     })
 
     await app.pressEnter()
-    expect(app.captureCharFrame()).toContain("Resume session")
+    expect(app.exits[0]).toEqual({ reason: "attach", code: 0, sessionName: "agent-man-a" })
   })
 
   it("shows home error when loading sessions fails", async () => {
@@ -168,61 +172,85 @@ describe("App e2e flows", () => {
     expect(appCtrlC.exits[0]).toEqual({ reason: "quit", code: 130 })
   })
 
-  it("handles empty resume list and source navigation", async () => {
-    const app = await renderApp({ sessions: [] })
-
-    await app.pressEnter()
-    await app.settle()
-    expect(app.captureCharFrame()).toContain("No agent-man sessions found.")
-
-    await app.pressDown()
-    await app.pressEnter()
-    await app.settle()
-    expect(app.captureCharFrame()).toContain("New opencode session")
-
-    await app.pressDown()
-    await app.pressEnter()
-    await app.pressEnter()
-    expect(app.captureCharFrame()).toContain("Existing directory path:")
-  })
-
-  it("supports up-navigation in home and resume lists", async () => {
+  it("shows top three sessions first and a more-sessions option", async () => {
     const app = await renderApp({
       sessions: [
-        { name: "agent-man-a", attached: false, activityEpoch: 100, agent: "opencode" },
-        { name: "agent-man-b", attached: false, activityEpoch: 90, agent: "codex" },
+        { name: "s1", attached: false, activityEpoch: 4, agent: "opencode" },
+        { name: "s2", attached: false, activityEpoch: 3, agent: "codex" },
+        { name: "s3", attached: false, activityEpoch: 2, agent: "opencode" },
+        { name: "s4", attached: false, activityEpoch: 1, agent: "codex" },
       ],
     })
 
-    await app.pressUp()
-    await app.pressEnter()
-    await app.settle()
-    expect(app.captureCharFrame()).toContain("Resume session")
-
-    await app.pressDown()
-    await app.pressUp()
-    await app.pressEnter()
-    expect(app.exits[0]).toEqual({ reason: "attach", code: 0, sessionName: "agent-man-a" })
+    const frame = app.captureCharFrame()
+    expect(frame).toContain("Resume: s1")
+    expect(frame).toContain("Resume: s2")
+    expect(frame).toContain("Resume: s3")
+    expect(frame).toContain("More sessions (1)")
   })
 
-  it("supports up-navigation in source list", async () => {
-    const app = await renderApp({ sessions: [] })
+  it("opens resume menu from more-sessions option", async () => {
+    const app = await renderApp({
+      sessions: [
+        { name: "s1", attached: false, activityEpoch: 4, agent: "opencode" },
+        { name: "s2", attached: false, activityEpoch: 3, agent: "codex" },
+        { name: "s3", attached: false, activityEpoch: 2, agent: "opencode" },
+        { name: "s4", attached: false, activityEpoch: 1, agent: "codex" },
+      ],
+    })
 
     await app.pressDown()
+    await app.pressDown()
+    await app.pressDown()
+    await app.pressEnter()
+    expect(app.captureCharFrame()).toContain("Resume session")
+  })
+
+  it("supports up-down navigation in resume menu and attaches selected session", async () => {
+    const app = await renderApp({
+      sessions: [
+        { name: "s1", attached: false, activityEpoch: 4, agent: "opencode" },
+        { name: "s2", attached: false, activityEpoch: 3, agent: "codex" },
+        { name: "s3", attached: false, activityEpoch: 2, agent: "opencode" },
+        { name: "s4", attached: false, activityEpoch: 1, agent: "codex" },
+      ],
+    })
+
+    await app.pressDown()
+    await app.pressDown()
+    await app.pressDown()
+    await app.pressEnter()
+    await app.pressDown()
+    await app.pressUp()
+    await app.pressDown()
+    await app.pressEnter()
+
+    expect(app.exits[0]).toEqual({ reason: "attach", code: 0, sessionName: "s2" })
+  })
+
+  it("opens new opencode wizard directly when no sessions exist", async () => {
+    const app = await renderApp({ sessions: [] })
+    await app.pressEnter()
+    await app.settle()
+    expect(app.captureCharFrame()).toContain("New opencode session")
+  })
+
+  it("supports source up-navigation from codex selection", async () => {
+    const app = await renderApp({ sessions: [] })
+
     await app.pressDown()
     await app.pressEnter()
     await app.settle()
     expect(app.captureCharFrame()).toContain("New codex session")
+
     await app.pressUp()
     await app.pressEnter()
-    await app.settle()
     expect(app.captureCharFrame()).toContain("Directory name:")
   })
 
   it("creates an OpenCode session from new_dir", async () => {
     const app = await renderApp({ sessions: [] })
 
-    await app.pressDown()
     await app.pressEnter()
     await app.pressEnter()
     await app.typeText("proj-a")
@@ -242,7 +270,6 @@ describe("App e2e flows", () => {
   it("creates a Codex session from gh_clone", async () => {
     const app = await renderApp({ sessions: [] })
 
-    await app.pressDown()
     await app.pressDown()
     await app.pressEnter()
 
@@ -264,10 +291,33 @@ describe("App e2e flows", () => {
     expect(app.exits[0]).toEqual({ reason: "attach", code: 0, sessionName: "agent-man-new" })
   })
 
-  it("exits to direct shell", async () => {
+  it("accepts paste events in form inputs", async () => {
     const app = await renderApp({ sessions: [] })
 
     await app.pressDown()
+    await app.pressEnter()
+    await app.pressDown()
+    await app.pressDown()
+    await app.pressEnter()
+
+    await app.pasteText("owner/repo")
+    await app.pressEnter()
+
+    expect(app.createInputs[0]?.repoInput).toBe("owner/repo")
+  })
+
+  it("ignores empty paste events", async () => {
+    const app = await renderApp({ sessions: [] })
+
+    await app.pressEnter()
+    await app.pressEnter()
+    await app.pasteText("")
+    expect(app.captureCharFrame()).toContain("_")
+  })
+
+  it("exits to direct shell", async () => {
+    const app = await renderApp({ sessions: [] })
+
     await app.pressDown()
     await app.pressDown()
     await app.pressEnter()
@@ -279,9 +329,7 @@ describe("App e2e flows", () => {
     const app = await renderApp({ createError: "Missing required binaries: codex" })
 
     await app.pressDown()
-    await app.pressDown()
     await app.pressEnter()
-
     await app.pressEnter()
     await app.typeText("proj-x")
     await app.pressEnter()
@@ -298,7 +346,6 @@ describe("App e2e flows", () => {
     })
 
     await app.pressEnter()
-    await app.pressEnter()
     await app.settle()
 
     expect(app.exits).toEqual([])
@@ -308,10 +355,8 @@ describe("App e2e flows", () => {
   it("requires non-empty form input and supports backspace editing", async () => {
     const app = await renderApp({ sessions: [] })
 
-    await app.pressDown()
     await app.pressEnter()
     await app.pressEnter()
-    await app.settle()
     await app.pressEnter()
     await app.settle()
     expect(app.captureCharFrame()).toContain("Input is required.")
@@ -325,10 +370,9 @@ describe("App e2e flows", () => {
   it("ignores non-enter keys on home and blocks input while busy", async () => {
     const app = await renderApp({ sessions: [] })
     await app.pressKey("x")
-    expect(app.captureCharFrame()).toContain("Main actions")
+    expect(app.captureCharFrame()).toContain("Sessions and actions")
 
     const busyApp = await renderApp({ sessions: [], createPending: true })
-    await busyApp.pressDown()
     await busyApp.pressEnter()
     await busyApp.pressEnter()
     await busyApp.typeText("proj-busy")
@@ -345,13 +389,10 @@ describe("App e2e flows", () => {
     const app = await renderApp({ createError: "clone failed" })
 
     await app.pressDown()
-    await app.pressDown()
     await app.pressEnter()
-
     await app.pressDown()
     await app.pressDown()
     await app.pressEnter()
-
     await app.typeText("owner/repo")
     await app.pressEnter()
     await app.settle()

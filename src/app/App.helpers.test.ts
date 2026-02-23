@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test"
 import {
-  HOME_ACTIONS,
+  MAX_HOME_SESSION_OPTIONS,
+  buildHomeOptions,
   screenOnEscape,
   handleKeyboardInput,
   updateFormScreen,
@@ -52,7 +53,22 @@ describe("App helper functions", () => {
     expect(formPrompt("gh_clone")).toContain("OWNER/REPO")
 
     expect(SOURCE_OPTIONS).toEqual(["new_dir", "existing_dir", "gh_clone"])
-    expect(HOME_ACTIONS).toHaveLength(4)
+    expect(MAX_HOME_SESSION_OPTIONS).toBe(3)
+  })
+
+  it("builds home options with top three sessions first", () => {
+    const options = buildHomeOptions([
+      { name: "s1", attached: false, activityEpoch: 3, agent: "codex" },
+      { name: "s2", attached: false, activityEpoch: 2, agent: "opencode" },
+      { name: "s3", attached: false, activityEpoch: 1, agent: "codex" },
+      { name: "s4", attached: false, activityEpoch: 0, agent: "opencode" },
+    ])
+
+    expect(options[0]).toEqual({ kind: "resume_session", sessionName: "s1", label: "Resume: s1 (codex)" })
+    expect(options[1]).toEqual({ kind: "resume_session", sessionName: "s2", label: "Resume: s2 (opencode)" })
+    expect(options[2]).toEqual({ kind: "resume_session", sessionName: "s3", label: "Resume: s3 (codex)" })
+    expect(options[3]).toEqual({ kind: "resume_menu", label: "More sessions (1)" })
+    expect(options[4]).toEqual({ kind: "new_session", agent: "opencode", label: "New OpenCode Session" })
   })
 
   it("builds create-session payloads", () => {
@@ -129,6 +145,7 @@ describe("App helper functions", () => {
       key: { name: "escape", sequence: "\u001b" },
       screen: currentState,
       sessions: [],
+      homeOptions: buildHomeOptions([]),
       onExit: (exit) => exits.push(exit),
       setScreen: (next) => {
         currentState = typeof next === "function" ? next(currentState) : next
@@ -141,5 +158,52 @@ describe("App helper functions", () => {
     expect((currentState as { kind: string }).kind).toBe("home")
     expect((currentState as { selected?: number }).selected).toBe(0)
     expect((currentState as { status?: string }).status).toBe("x")
+  })
+
+  it("handles home up, empty home options, and source up paths", () => {
+    let currentState: import("./App").ScreenState = { kind: "home", selected: 1 }
+    const exits: unknown[] = []
+
+    const setScreen = (next: import("./App").ScreenState | ((current: import("./App").ScreenState) => import("./App").ScreenState)) => {
+      currentState = typeof next === "function" ? next(currentState) : next
+    }
+
+    handleKeyboardInput({
+      key: { name: "up" },
+      screen: currentState,
+      sessions: [],
+      homeOptions: buildHomeOptions([]),
+      onExit: (exit) => exits.push(exit),
+      setScreen,
+      runResume: () => {},
+      runCreate: () => {},
+    })
+    expect((currentState as { selected?: number }).selected).toBe(0)
+
+    handleKeyboardInput({
+      key: { name: "return" },
+      screen: currentState,
+      sessions: [],
+      homeOptions: [],
+      onExit: (exit) => exits.push(exit),
+      setScreen,
+      runResume: () => {},
+      runCreate: () => {},
+    })
+    expect((currentState as { kind: string }).kind).toBe("home")
+
+    currentState = { kind: "source", agent: "codex", selected: 1 }
+    handleKeyboardInput({
+      key: { name: "up" },
+      screen: currentState,
+      sessions: [],
+      homeOptions: buildHomeOptions([]),
+      onExit: (exit) => exits.push(exit),
+      setScreen,
+      runResume: () => {},
+      runCreate: () => {},
+    })
+    expect((currentState as { selected?: number }).selected).toBe(0)
+    expect(exits).toEqual([])
   })
 })

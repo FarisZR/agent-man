@@ -2,12 +2,13 @@
 
 ## Home screen
 
-Main actions:
+Main options:
 
-1. Resume Session
-2. New OpenCode Session
-3. New Codex Session
-4. Direct Shell (no tmux)
+1. Up to 3 most recent sessions (resume directly)
+2. `More sessions (N)` when more than 3 exist
+3. New OpenCode Session
+4. New Codex Session
+5. Direct Shell (no tmux)
 
 Keyboard:
 
@@ -18,10 +19,9 @@ Keyboard:
 
 ## Resume flow
 
-1. Open resume list from Home.
-2. Select a session with arrows.
-3. Press Enter to continue to attach orchestration.
-4. Press `esc` to return Home.
+1. Select one of the top 3 sessions from Home and press Enter.
+2. For older sessions, open `More sessions (N)` and select from the full list.
+3. Press `esc` to return Home.
 
 ## New session flow
 
@@ -31,8 +31,9 @@ Keyboard:
 - `existing_dir`
 - `gh_clone`
 3. Enter source-specific value.
-4. Press Enter to submit and create session.
-5. Press `esc` to move backward in the wizard.
+4. Paste is supported for form inputs (paths/repo URLs).
+5. Press Enter to submit and create session.
+6. Press `esc` to move backward in the wizard.
 
 ## Direct shell flow
 
