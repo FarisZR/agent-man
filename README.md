@@ -1,4 +1,5 @@
 # agent-man
+<img width="918" height="386" alt="Screenshot From 2026-02-23 22-15-36" src="https://github.com/user-attachments/assets/e7f95684-de7b-4dbd-993b-82b3449c3bb2" />
 
 Seamless multi-device coding workflows with persistent AI agents.
 
